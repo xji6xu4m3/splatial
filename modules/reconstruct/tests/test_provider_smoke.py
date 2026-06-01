@@ -16,13 +16,17 @@ class _FakeGaussians:
 
 
 def test_reconstruct_builds_scene(tmp_path, monkeypatch):
+    # Hermetic: stub the three AnySplat-touching methods so no torch/AnySplat is needed.
     r = AnySplatReconstructor()
-    monkeypatch.setattr(r, "_run_anysplat", lambda paths: (_FakeGaussians(), None))
+    monkeypatch.setattr(r, "_run_anysplat", lambda paths: ("G", None))
+    monkeypatch.setattr(r, "_export_ply", lambda g, out: Path(out).write_text("ply\nfake\n"))
+    monkeypatch.setattr(r, "_gaussian_xyz", lambda g: np.random.rand(100, 3))
     out = tmp_path / "scene.ply"
     scene = r.reconstruct([Path("a.png"), Path("b.png")], "room1", out)
     assert out.exists()
     assert scene.id == "room1"
     assert scene.source_meta["n_gaussians"] == 100
+    assert scene.source_meta["n_views"] == 2
     assert len(scene.bbox) == 2 and len(scene.bbox[0]) == 3
 
 

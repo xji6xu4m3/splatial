@@ -45,3 +45,8 @@ dist/
 
 # Keep the source PDFs out of git (large binaries)
 *.pdf
+AnySplat/
+external_AnySplat/
+data/
+scripts_install_anysplat.sh
+install_anysplat.log
