@@ -1,0 +1,14 @@
+import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d'
+
+export async function createViewer(container, plyUrl) {
+  const viewer = new GaussianSplats3D.Viewer({
+    rootElement: container,
+    cameraUp: [0, 1, 0],
+    initialCameraPosition: [0, 0, 4],
+    initialCameraLookAt: [0, 0, 0],
+    sphericalHarmonicsDegree: 0,
+  })
+  await viewer.addSplatScene(plyUrl, { showLoadingUI: true })
+  viewer.start()
+  return viewer  // viewer.threeScene is the THREE.Scene we add objects to
+}

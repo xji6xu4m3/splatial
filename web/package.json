@@ -1,0 +1,20 @@
+{
+  "name": "splatial-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@mkkellogg/gaussian-splats-3d": "^0.4.5",
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "vite": "^6.0.0"
+  }
+}
