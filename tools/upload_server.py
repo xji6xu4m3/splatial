@@ -9,12 +9,13 @@ Run (from repo root, in the .venv):
 It shells out to the `anysplat` conda env for the actual reconstruction, and the
 viewer is the separately-running Vite dev server on :5173.
 """
+import json
 import re
 import subprocess
 import threading
 from pathlib import Path
 
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -22,6 +23,7 @@ SCENES = ROOT / "scenes"
 CONDA = "/home/liylo/anaconda3/condabin/conda"
 VIEWER_PORT = 5173
 SCENE_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
+HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,255}$")
 ALLOWED_EXT = {"mp4", "mov", "m4v", "webm", "avi"}
 
 app = Flask(__name__)
@@ -54,9 +56,10 @@ a.btn{{display:inline-block;font-size:20px;padding:16px 24px;background:#5e35b1;
 <div id=s>⏳ working — this takes ~1–2 min</div>
 <div id=link></div>
 <script>
-const scene="{scene}", viewer="http://{host}:{port}/?scene="+scene;
+const scene={scene_json};
+const viewer={viewer_json};
 async function poll(){{
-  const r=await fetch("/status/"+scene); const j=await r.json();
+  const r=await fetch("/status/"+encodeURIComponent(scene)); const j=await r.json();
   if(j.state==="done"){{document.getElementById('s').textContent="✅ done!";
     const a=document.createElement('a'); a.className='btn'; a.href=viewer; a.textContent='Open 3D viewer →';
     document.getElementById('link').replaceChildren(a);}}
@@ -92,6 +95,11 @@ def upload():
     scene = (request.form.get("scene") or "").strip().lower()
     if not SCENE_RE.match(scene):
         return "invalid scene name (use a-z 0-9 _ -)", 400
+    # Validate the Host header up front (before any side effects) — it is reflected into
+    # the response, so reject anything outside a strict hostname/IP charset.
+    host = request.host.split(":")[0]
+    if not HOST_RE.match(host):
+        return "invalid host header", 400
     f = request.files.get("video")
     if not f or not f.filename:
         return "no video uploaded", 400
@@ -103,8 +111,10 @@ def upload():
     f.save(str(video_path))
     STATUS[scene] = "processing"
     threading.Thread(target=_reconstruct, args=(str(video_path), scene), daemon=True).start()
-    host = request.host.split(":")[0]
-    return RESULT.format(scene=scene, host=host, port=VIEWER_PORT)
+    viewer_url = f"http://{host}:{VIEWER_PORT}/?scene={scene}"
+    # scene is [a-z0-9_-] (safe in HTML); JS values are JSON-encoded for JS-context safety.
+    return RESULT.format(scene=scene, scene_json=json.dumps(scene),
+                         viewer_json=json.dumps(viewer_url))
 
 
 @app.get("/status/<scene>")
