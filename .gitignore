@@ -1,0 +1,47 @@
+# Large artifacts / data — never commit
+*.ply
+*.splat
+*.glb.bak
+checkpoints/
+weights/
+*.pth
+*.ckpt
+captures/
+data/
+outputs/
+*.mp4
+*.mov
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Node / web viewer
+node_modules/
+dist/
+.cache/
+
+# Unity (if used for the viewer)
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+*.csproj
+*.sln
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Keep the source PDFs out of git (large binaries)
+*.pdf
