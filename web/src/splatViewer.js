@@ -7,6 +7,9 @@ export async function createViewer(container, plyUrl) {
     initialCameraPosition: [0, 0, 4],
     initialCameraLookAt: [0, 0, 0],
     sphericalHarmonicsDegree: 0,
+    // Avoid SharedArrayBuffer (needs cross-origin isolation / COOP+COEP headers).
+    // Disabling shared-memory workers makes the viewer work on a plain dev server.
+    sharedMemoryForWorkers: false,
   })
   await viewer.addSplatScene(plyUrl, { showLoadingUI: true })
   viewer.start()

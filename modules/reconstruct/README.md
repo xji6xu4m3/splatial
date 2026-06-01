@@ -94,3 +94,19 @@ pytest modules/reconstruct -v
 ```
 
 All tests use monkeypatching — no GPU, torch, anysplat, or vggt packages required.
+
+## Verified install & run (RTX 4070 Ti, 12 GB — 2026-06-01)
+
+**Engine chosen: AnySplat** (the VGGT fallback was NOT needed). Peak VRAM **~6.1 GB** for 16 views @ 448px → **1.66M Gaussians**, `scene.ply` ~113 MB. `RECON_ENGINE=anysplat`.
+
+Install lives in a dedicated **conda env `anysplat` (Python 3.10)** so AnySplat's prebuilt cp310 wheels apply:
+- `torch==2.2.0 torchvision==0.17.0 --index-url .../cu121`, pin **numpy==1.26.4** (torch 2.2 needs numpy<2).
+- Prebuilt wheels: `torch_scatter==2.1.2` (data.pyg.org), `gsplat 1.4.0` (cp310/pt22cu121 release wheel).
+- **pytorch3d 0.7.8 built from source** (no prebuilt wheel exists): `pip install --no-build-isolation git+https://github.com/facebookresearch/pytorch3d.git@stable` with `CUDA_HOME` = a full CUDA 12.x toolkit, `CPATH=$CUDA_HOME/targets/x86_64-linux/include` (conda-CUDA header layout), `TORCH_CUDA_ARCH_LIST=8.9` (Ada), and the **anysplat env's python first on PATH** so the wheel builds cp310.
+- Clone AnySplat to `external_AnySplat/`; point the provider at it via `ANYSPLAT_ROOT`.
+
+Run:
+```bash
+conda run -n anysplat env ANYSPLAT_ROOT=$PWD/external_AnySplat RECON_ENGINE=anysplat \
+  python -m modules.reconstruct.cli data/room1.mp4 scenes room1
+```
