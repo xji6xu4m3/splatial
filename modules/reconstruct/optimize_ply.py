@@ -17,15 +17,19 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-x))
 
 
-def select_indices(alpha: np.ndarray, max_gaussians: int, min_alpha: float = 0.0) -> np.ndarray:
-    """Indices to KEEP: drop alpha < min_alpha, then keep the highest-alpha `max_gaussians`.
+def select_indices(alpha: np.ndarray, max_gaussians: int, min_alpha: float = 0.0,
+                   seed: int = 0) -> np.ndarray:
+    """Indices to KEEP for a size cap.
 
-    Returned indices are sorted ascending (preserves original spatial ordering).
+    Drop the truly-invisible (alpha < min_alpha), then if still over the cap, take a
+    UNIFORM RANDOM subsample. Uniform sampling thins the whole scene evenly and preserves
+    the background — unlike opacity-ranked pruning, which deletes low-opacity walls/sky
+    and leaves white holes. Deterministic for a given seed. Returns sorted indices.
     """
     idx = np.nonzero(alpha >= min_alpha)[0]
     if idx.size > max_gaussians:
-        top = np.argsort(alpha[idx], kind="stable")[::-1][:max_gaussians]
-        idx = np.sort(idx[top])
+        rng = np.random.default_rng(seed)
+        idx = np.sort(rng.choice(idx, size=max_gaussians, replace=False))
     return idx
 
 

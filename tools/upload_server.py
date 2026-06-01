@@ -37,13 +37,13 @@ h1{{font-size:20px}} input,button{{font-size:18px;padding:12px;margin:8px 0;widt
 button{{background:#5e35b1;color:#fff;border:0;border-radius:8px}} a{{color:#9c7bff}}
 .tip{{color:#aaa;font-size:14px;line-height:1.5}}</style></head><body>
 <h1>📸 Splatial — capture a room</h1>
-<p class=tip>Record a <b>slow, steady sweep</b> (~15–25s) of a small area — move <i>around</i> objects for parallax, keep good light, lots of overlap.</p>
+<p class=tip><b>Best quality:</b> record with your phone's <b>native Camera app</b> (sharper/stabilized), then pick that file below. A <b>slow, steady sweep</b> (~15–25s), moving <i>around</i> the area for parallax, good light, lots of overlap. (Frames are processed at 448px, so framing &amp; steadiness matter more than resolution.)</p>
 <form method=post action=/upload enctype=multipart/form-data>
   <input name=scene placeholder="scene name (e.g. room2)" value="room2" pattern="[a-z0-9_-]+" required>
-  <input type=file name=video accept="video/*" capture="environment" required>
+  <input type=file name=video accept="video/*" required>
   <button type=submit>Upload &amp; reconstruct</button>
 </form>
-<p class=tip>After upload it reconstructs in ~1–2 min, then shows a link to the 3D viewer.</p>
+<p class=tip>Pick an existing recording (recommended) or your camera. Reconstructs in ~1–2 min, then links to the 3D viewer.</p>
 </body></html>"""
 
 RESULT = """<!doctype html><html><head><meta charset=utf-8>

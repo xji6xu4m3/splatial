@@ -16,16 +16,18 @@ def main():
     if Path(scene_id).parts != (scene_id,):
         print(f"error: scene_id must not contain path separators or '..': {scene_id!r}")
         sys.exit(2)
+    max_views = int(os.environ.get("MAX_VIEWS", "16"))  # 12GB caps ~16 @ 448px; more needs a bigger GPU
     d = scene_dir(scenes_root, scene_id)
-    frames = extract_frames(video, str(d / "frames"), max_frames=16, long_side=448)
-    print(f"extracted {len(frames)} frames; engine={engine}")
+    frames = extract_frames(video, str(d / "frames"), max_frames=max_views, long_side=448)
+    print(f"extracted {len(frames)} frames; engine={engine}; max_views={max_views}")
     recon = make_reconstructor(engine)
+    recon.max_views = max_views  # let the reconstructor consume all sampled views
     scene = recon.reconstruct(frames, scene_id, d / "scene.ply")
     print(f"wrote {d / 'scene.ply'} with {scene.source_meta['n_gaussians']} gaussians")
 
     # Mobile-friendly prune: phones can't load multi-million-splat PLYs. Emit a capped
     # scene_mobile.ply and point the scene at it (full PLY kept as source_meta.full_ply).
-    cap = int(os.environ.get("MAX_GAUSSIANS", "900000"))
+    cap = int(os.environ.get("MAX_GAUSSIANS", "1100000"))
     if scene.source_meta["n_gaussians"] > cap:
         from modules.reconstruct.optimize_ply import prune_ply
         kept, total = prune_ply(d / "scene.ply", d / "scene_mobile.ply", max_gaussians=cap)
