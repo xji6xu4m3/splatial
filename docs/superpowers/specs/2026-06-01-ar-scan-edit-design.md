@@ -41,10 +41,11 @@ Scan a small real-world room with a **phone camera (camera-only, no LiDAR)**, re
 
 | Track | Source | Role | Status |
 |---|---|---|---|
-| **Primary — camera-only splat** | Phone RGB video → AnySplat → 3DGS | The demo. Offline reconstruction on the 4070 Ti (cloud fallback). | Weeks 1–2 |
+| **Primary — camera-only splat (AnySplat)** | Phone RGB video → AnySplat → 3DGS | The demo. Feed-forward, seconds, emits 3DGS `.ply` directly. Offline reconstruction on the 4070 Ti (cloud fallback). | Weeks 1–2 |
+| **Fallback — camera-only splat (VGGT+gsplat)** | Phone RGB video → VGGT-1B-Commercial (poses+depth+pointmaps) → gsplat per-scene optimization → 3DGS | First-class drop-in if AnySplat fails install / OOMs >~11 GB / quality below bar. Heavier (per-scene optimization, minutes) but 12 GB-friendly for a small room; commercial-licensed checkpoint. **Yields the identical `SplatScene` contract** — viewer/objects/editor untouched. | Weeks 1–2 (on trigger) |
 | **Future — on-device AR / glasses** | On-glasses VIO + offloaded AnySplat/VGGT + VPS persistence; built to OpenXR | The product (Meta glasses). | Future |
 
-Optional scale aid: if metric scale is ever needed, align AnySplat's up-to-scale output to a known reference or (on a Pro iPhone) ARKit poses via a single Sim(3) factor. Not required for the viewer demo (consistent relative scale is enough to place furniture).
+Both camera-only tracks sit behind one `Reconstructor` protocol (§6) and are swapped via the `RECON_ENGINE` switch; downstream modules never see which engine ran. Optional scale aid: if metric scale is ever needed, align AnySplat's up-to-scale output to a known reference or (on a Pro iPhone) ARKit poses via a single Sim(3) factor. Not required for the viewer demo (consistent relative scale is enough to place furniture).
 
 ## 5. Why StreamSplat is dropped (on record)
 
@@ -52,7 +53,7 @@ StreamSplat (arXiv:2506.08862) is best-in-class at **online dynamic streaming** 
 
 ## 6. Module boundaries & contracts (C8)
 
-Six modules, each with a README documenting its public API and data contract. They communicate only through the shared data types below — never reach into each other's internals.
+Seven modules, each with a README documenting its public API and data contract. They communicate only through the shared data types below — never reach into each other's internals.
 
 ```
 capture ──frames──▶ reconstruct ──SplatScene──▶ scene_store ◀──persist── objects/editor
@@ -63,15 +64,15 @@ capture ──frames──▶ reconstruct ──SplatScene──▶ scene_store 
 
 **Shared data contracts**
 ```
-SplatScene   { id, gaussians_ref(.ply), bbox, up_vector, scale_hint, source_meta }
-SceneObject  { id, glb_ref, transform(pos,rot,scale), material_overrides, scene_id }
+SplatScene   { id, ply, bbox, up, scale_hint, source_meta }
+SceneObject  { id, glb, transform(pos,rot,scale), material_overrides, scene_id }
 EditOp       { id, target(object_id|scene), kind(transform|recolor|swap|remove), params }
 ```
 
 | Module | Responsibility | Public API (sketch) | Depends on |
 |---|---|---|---|
 | `capture` | Phone video → ordered frames (sampling, dedup, resize) | `extract_frames(video) -> [Frame]` | — |
-| `reconstruct` (`SceneProvider`) | Frames → `SplatScene`. **AnySplat** impl now; VGGT impl later. Never leaks backend internals. | `reconstruct(frames) -> SplatScene` | capture |
+| `reconstruct` (`Reconstructor`) | Frames → `SplatScene`. Two interchangeable impls behind one protocol: **AnySplat** (primary) and **VGGT+gsplat** (fallback), chosen by `make_reconstructor(engine)` / `RECON_ENGINE`. Never leaks backend internals. | `reconstruct(image_paths, scene_id, out_ply) -> SplatScene` | capture |
 | `scene_store` | Persist/load splats, placed objects, edit ops (reproducible scenes) | `save(scene)/load(id)/apply(EditOp)` | — |
 | `objects` | Acquire a GLB via one of two providers, place/transform it in the splat frame, surface-snap | `get(query) -> glb` (provider iface), `place(glb, transform) -> SceneObject` | generate, scene_store |
 | `generate` | Voice/text → GLB. Web Speech API → SDXL-Turbo → TRELLIS; **pre-generated cache** keyed by word, live fallback | `from_text(prompt) -> glb` | — |
@@ -81,6 +82,11 @@ EditOp       { id, target(object_id|scene), kind(transform|recolor|swap|remove),
 Object providers (both implement the same `ObjectProvider` interface):
 - `LibraryObjectProvider` — returns a GLB from the pre-built `assets/` library.
 - `GeneratedObjectProvider` — returns a GLB from `generate` (cache hit = instant; miss = live ~30–40s).
+
+Reconstructors (both implement the same `Reconstructor` protocol — `reconstruct(image_paths, scene_id, out_ply) -> SplatScene` — and emit the **identical** `SplatScene` + standard 3DGS `.ply`, so the viewer/objects/editor never change):
+- `AnySplatReconstructor` (**primary**) — feed-forward; one pass takes the capped views and emits a 3DGS `.ply` directly in seconds.
+- `VGGTReconstructor` (**fallback**) — VGGT-1B-Commercial predicts poses + depth + pointmaps, which initialize a 3DGS that `gsplat` (`nerfstudio-project/gsplat`) optimizes per-scene (minutes), then exports the same `.ply` / `SplatScene` contract. 12 GB-friendly for a small room; uses a commercial-licensed checkpoint.
+- `make_reconstructor(engine: 'anysplat'|'vggt') -> Reconstructor` is the factory; the `RECON_ENGINE` env/config var selects the engine so swapping engines is a one-line change with no downstream impact.
 
 ## 7. Model / asset spine (commercial-safe unless flagged)
 
@@ -106,6 +112,15 @@ Object providers (both implement the same `ObjectProvider` interface):
 - ⚠️ **Batch, not streaming** — capture-then-reconstruct. Fine (live tracking not needed for the viewer).
 - ⚠️ **Static model** — minor motion → ghosting on moving parts (acceptable, C3).
 - ⚠️ **VRAM: 12 GB (4070 Ti) is tight.** Cap views (~8–24) and resolution (≤448px long side); fall back to cloud GPU for larger scans. Differentiable voxelization caps Gaussian count and memory plateaus with views (paper Fig 5).
+
+### Fallback trigger (AnySplat → VGGT)
+
+A **Phase-0 decision gate** switches reconstruction from AnySplat to the `VGGTReconstructor` (§6) if **any** of these hold:
+- **Install fails** — AnySplat won't install / import cleanly on the demo box (dependency, CUDA, or weights-download breakage).
+- **VRAM / OOM** — peak VRAM exceeds **~11 GB** (or it OOMs) on the 4070 Ti even after capping views (~8) and resolution (384px).
+- **Quality below bar** — the splat is visibly broken (floaters, holes, smeared geometry) below an acceptable visual bar in the viewer.
+
+To switch, set `RECON_ENGINE=vggt` and re-run — **no downstream change**: VGGT+gsplat emits the identical `SplatScene` + `.ply`, so the viewer, object placement, and editor are untouched. Document which engine was chosen and why.
 
 ## 9. Data flow (demo)
 

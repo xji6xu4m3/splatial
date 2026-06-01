@@ -462,6 +462,8 @@ git commit -m "feat(scene_store): SplatScene/SceneObject contracts + folder pers
 
 **Files:**
 - Create: `modules/reconstruct/anysplat_provider.py`
+- Create: `modules/reconstruct/vggt_provider.py`
+- Create: `modules/reconstruct/factory.py`
 - Create: `modules/reconstruct/cli.py`
 - Test: `modules/reconstruct/tests/test_provider_smoke.py`
 - Modify: `pyproject.toml` (add a `recon` extra)
@@ -541,11 +543,12 @@ class AnySplatReconstructor:
 `modules/reconstruct/cli.py`:
 
 ```python
+import os
 import sys
 from pathlib import Path
 from modules.capture.frames import extract_frames
 from modules.scene_store.store import save_scene, scene_dir
-from modules.reconstruct.anysplat_provider import AnySplatReconstructor
+from modules.reconstruct.factory import make_reconstructor
 
 
 def main():
@@ -553,10 +556,11 @@ def main():
         print("usage: python -m modules.reconstruct.cli <video> <scenes_root> <scene_id>")
         sys.exit(2)
     video, scenes_root, scene_id = sys.argv[1], sys.argv[2], sys.argv[3]
+    engine = os.environ.get("RECON_ENGINE", "anysplat")  # one-line swap: anysplat | vggt
     d = scene_dir(scenes_root, scene_id)
     frames = extract_frames(video, str(d / "frames"), max_frames=16, long_side=448)
-    print(f"extracted {len(frames)} frames")
-    recon = AnySplatReconstructor()
+    print(f"extracted {len(frames)} frames; engine={engine}")
+    recon = make_reconstructor(engine)
     scene = recon.reconstruct(frames, scene_id, d / "scene.ply")
     save_scene(scenes_root, scene)
     print(f"wrote {d/'scene.ply'} with {scene.source_meta['n_gaussians']} gaussians")
@@ -601,6 +605,100 @@ def test_reconstruct_builds_scene(tmp_path, monkeypatch):
 Run: `pytest modules/reconstruct/tests/test_provider_smoke.py -v`
 Expected: PASS (1 passed) — verifies our adapter wiring independent of the real model.
 
+- [ ] **Step 5a: Define the VGGT fallback adapter (same interface as AnySplat)**
+
+`VGGTReconstructor` implements the **identical** `reconstruct(image_paths, scene_id, out_ply) -> SplatScene` contract and emits the same standard 3DGS `.ply`, so nothing downstream changes. It is heavier (per-scene `gsplat` optimization, minutes) but 12 GB-friendly for a small room and uses a commercial-licensed checkpoint. As with AnySplat, **pin the real VGGT + gsplat APIs from the repos before coding** — `facebook/VGGT-1B-Commercial` for poses/depth/pointmaps and `nerfstudio-project/gsplat` for the 3DGS optimization/export — and record the exact entrypoints in a header comment; everything else here is our stable contract.
+
+`modules/reconstruct/vggt_provider.py`:
+
+```python
+"""VGGT + gsplat reconstruction adapter (fallback for AnySplat).
+
+Fill the VGGT and gsplat calls (marked TODO-PIN) from the repo examples:
+- VGGT-1B-Commercial: load + predict poses/depth/pointmaps from image paths.
+- gsplat (nerfstudio-project/gsplat): init a 3DGS from the pointmaps, optimize
+  ~1-3k steps, export a standard INRIA 3DGS .ply.
+Everything else here is our stable contract, identical to AnySplatReconstructor.
+"""
+from pathlib import Path
+import numpy as np
+from modules.scene_store.contracts import SplatScene
+
+
+class VGGTReconstructor:
+    def __init__(self, device: str = "cuda", long_side: int = 448,
+                 max_views: int = 16, opt_steps: int = 2000):
+        self.device = device
+        self.long_side = long_side
+        self.max_views = max_views
+        self.opt_steps = opt_steps
+        self._model = None
+
+    def _load(self):
+        if self._model is None:
+            # TODO-PIN: exact import/load per VGGT-1B-Commercial repo example
+            from vggt import VGGT  # exact import per repo example
+            self._model = VGGT.from_pretrained("facebook/VGGT-1B-Commercial").to(self.device)
+        return self._model
+
+    def _run_vggt(self, image_paths: list[Path]):
+        """Return poses + depth + pointmaps from VGGT for the given images."""
+        model = self._load()
+        # TODO-PIN: exact call per repo example -> {poses, depth, pointmaps}
+        return model.predict(image_paths)
+
+    def _optimize_gsplat(self, vggt_out, out_ply: Path):
+        """Init a 3DGS from VGGT pointmaps, optimize with gsplat, export .ply.
+        Returns the gaussian container (means accessible like AnySplat's)."""
+        # TODO-PIN: nerfstudio-project/gsplat init from pointmaps + ~self.opt_steps
+        #           rasterization-loss optimization, then export INRIA 3DGS .ply.
+        gaussians = gsplat_init_and_optimize(vggt_out, steps=self.opt_steps)  # placeholder
+        gaussians.save_ply(str(out_ply))
+        return gaussians
+
+    def reconstruct(self, image_paths: list[Path], scene_id: str, out_ply: Path) -> SplatScene:
+        capped = image_paths[: self.max_views]
+        vggt_out = self._run_vggt(capped)
+        gaussians = self._optimize_gsplat(vggt_out, out_ply)
+        xyz = self._gaussian_xyz(gaussians)          # (N,3) numpy
+        bbox = [xyz.min(0).tolist(), xyz.max(0).tolist()]
+        return SplatScene(
+            id=scene_id, ply=out_ply.name, bbox=bbox,
+            up=[0.0, 1.0, 0.0], scale_hint=1.0,
+            source_meta={"model": "vggt+gsplat", "n_views": len(capped),
+                         "opt_steps": self.opt_steps, "n_gaussians": int(xyz.shape[0])},
+        )
+
+    @staticmethod
+    def _gaussian_xyz(gaussians) -> np.ndarray:
+        # adapt to gsplat's gaussian container (e.g. gaussians.means.cpu().numpy())
+        return np.asarray(gaussians.means.detach().cpu().numpy())
+```
+
+Add a sibling smoke test mirroring `test_reconstruct_builds_scene` (monkeypatch `_run_vggt` and `_optimize_gsplat`, assert `source_meta["model"] == "vggt+gsplat"` and `n_gaussians`).
+
+- [ ] **Step 5b: Add the `make_reconstructor` factory (one-line engine swap)**
+
+`modules/reconstruct/factory.py`:
+
+```python
+"""Reconstructor factory. RECON_ENGINE picks the engine; both impls share the
+identical reconstruct(image_paths, scene_id, out_ply) -> SplatScene contract."""
+from modules.reconstruct.anysplat_provider import AnySplatReconstructor
+from modules.reconstruct.vggt_provider import VGGTReconstructor
+
+
+def make_reconstructor(engine: str = "anysplat"):
+    engine = (engine or "anysplat").lower()
+    if engine == "anysplat":
+        return AnySplatReconstructor()
+    if engine == "vggt":
+        return VGGTReconstructor()
+    raise ValueError(f"unknown RECON_ENGINE: {engine!r} (expected 'anysplat' | 'vggt')")
+```
+
+Add a factory test: `make_reconstructor("anysplat")` / `make_reconstructor("vggt")` return the right types and an unknown engine raises `ValueError`. (Imports are lazy-safe for CI: the heavy model imports live inside each adapter's `_load`, not at module import.)
+
 - [ ] **Step 6: Wire the real AnySplat calls and fix placeholders**
 
 Using the API pinned in Step 1, replace the placeholder lines in `_load`, `_run_anysplat`, `_export_ply`, and `_gaussian_xyz` with the repo's real entrypoints. Apply the 12 GB flags before importing torch-heavy modules:
@@ -616,7 +714,7 @@ Add `import torch; torch.cuda.empty_cache()` at the end of `_run_anysplat`.
 
 ```bash
 git add modules/reconstruct pyproject.toml
-git commit -m "feat(reconstruct): AnySplat adapter + CLI (frames -> scene.ply)"
+git commit -m "feat(reconstruct): AnySplat + VGGT adapters, make_reconstructor factory + CLI (frames -> scene.ply)"
 ```
 
 ---
@@ -640,6 +738,20 @@ Expected: prints `extracted 16 frames` then `wrote scenes/room1/scene.ply with <
 - [ ] **Step 3: If it OOMs, reduce load**
 
 Lower caps in the CLI call path: `max_frames=8`, `long_side=384`. Re-run. If still OOM, document the cloud-GPU fallback (rent an A10/L4, same command) in `modules/reconstruct/README.md`.
+
+- [ ] **Step 3a: Decision gate — AnySplat → VGGT fallback**
+
+Evaluate the AnySplat run against the Phase-0 gate (spec §8 "Fallback trigger"). Switch to the VGGT engine if **any** holds:
+- **Install fails** — AnySplat won't install/import cleanly on the demo box.
+- **VRAM / OOM** — peak VRAM > ~11 GB (or OOM) on the 4070 Ti even after the Step 3 caps (`max_frames=8`, `long_side=384`).
+- **Quality below bar** — the splat is visibly broken (floaters, holes, smeared geometry) below an acceptable visual bar.
+
+If triggered, set the engine and re-run the **same** command — no downstream change, since VGGT+gsplat emits the identical `SplatScene` + `.ply`:
+
+```bash
+RECON_ENGINE=vggt python -m modules.reconstruct.cli data/room1.mp4 scenes room1
+```
+Expected: prints `engine=vggt`, then `wrote scenes/room1/scene.ply with <N> gaussians` (slower — per-scene gsplat optimization, minutes). Watch `nvidia-smi -l 1`; confirm peak VRAM < ~11 GB. Then continue with Step 4. **Document the chosen engine and the reason** (which trigger fired, observed VRAM/runtime) in `modules/reconstruct/README.md`.
 
 - [ ] **Step 4: Sanity-check the .ply**
 
