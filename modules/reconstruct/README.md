@@ -110,3 +110,25 @@ Run:
 conda run -n anysplat env ANYSPLAT_ROOT=$PWD/external_AnySplat RECON_ENGINE=anysplat \
   python -m modules.reconstruct.cli data/room1.mp4 scenes room1
 ```
+
+## Post-optimization + evaluation (optional quality step)
+
+Feed-forward AnySplat is instant but rough. AnySplat ships a **camera-free** per-scene
+gsplat refiner (`src/post_opt/simple_trainer.py`) that re-runs AnySplat for init Gaussians
++ poses, holds out views (`test_every`), refines with gsplat, and reports **PSNR/SSIM/LPIPS**.
+
+**Setup (one-time):**
+1. Clone AnySplat to `external_AnySplat/`, then `python tools/patch_anysplat.py` (makes
+   `pycolmap` optional, fixes the `normalize` import, wraps the init encoder in `no_grad`).
+2. In the `anysplat` env: `pip install tyro tensorboard pycolmap viser nerfview splines tensorly`
+   and build `fused_ssim` (CUDA, same recipe as pytorch3d — CUDA_HOME=ml env, CPATH, sm_89).
+
+**Run:** `tools/postopt.sh <frames_dir> <result_dir> [steps]` → refined PLY in
+`<result_dir>/ply/`, metrics in `<result_dir>/stats/val_step*.json`.
+
+**12 GB constraint:** the voxelization OOMs above ~8 views, so post-opt is limited to a
+small frame subset on the 4070 Ti (cap views, `sh-degree 1`, `expandable_segments`). More
+views → better quality → needs a larger/cloud GPU.
+
+**Verified (room2, 8 frames, 3k steps):** PSNR 7.95→9.58, SSIM 0.317→0.451 (peak 6.1 GB).
+A measurable gain; absolute fidelity is low due to sparse views + held-out-pose error.
