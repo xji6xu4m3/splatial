@@ -21,8 +21,19 @@ def main():
     print(f"extracted {len(frames)} frames; engine={engine}")
     recon = make_reconstructor(engine)
     scene = recon.reconstruct(frames, scene_id, d / "scene.ply")
-    save_scene(scenes_root, scene)
     print(f"wrote {d / 'scene.ply'} with {scene.source_meta['n_gaussians']} gaussians")
+
+    # Mobile-friendly prune: phones can't load multi-million-splat PLYs. Emit a capped
+    # scene_mobile.ply and point the scene at it (full PLY kept as source_meta.full_ply).
+    cap = int(os.environ.get("MAX_GAUSSIANS", "900000"))
+    if scene.source_meta["n_gaussians"] > cap:
+        from modules.reconstruct.optimize_ply import prune_ply
+        kept, total = prune_ply(d / "scene.ply", d / "scene_mobile.ply", max_gaussians=cap)
+        scene.source_meta["full_ply"] = "scene.ply"
+        scene.source_meta["n_gaussians"] = kept
+        scene.ply = "scene_mobile.ply"
+        print(f"pruned {total} -> {kept} gaussians (scene_mobile.ply)")
+    save_scene(scenes_root, scene)
 
 
 if __name__ == "__main__":
