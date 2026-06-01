@@ -1,6 +1,7 @@
 import { createViewer } from './splatViewer.js'
 import { loadSceneMeta } from './sceneLoader.js'
 import { placeObject } from './objects.js'
+import { enableWalk } from './walk.js'
 import * as THREE from 'three'
 
 const app = document.getElementById('app')
@@ -36,6 +37,11 @@ async function boot() {
     // GLB paths in objects.json are repo-relative (e.g. assets/chair.glb) -> serve as /assets/...
     await placeObject(viewer.threeScene, { ...o, glb: '/' + o.glb })
   }
+  // Walk/fly inspection: extent from the scene bbox sets the move speed.
+  const extent = (scene.bbox && scene.bbox.length === 2)
+    ? Math.hypot(...scene.bbox[1].map((hi, i) => hi - scene.bbox[0][i]))
+    : 3
+  enableWalk(viewer, extent)
   window.__viewer = viewer
   window.__objectCount = objects.length
 }
