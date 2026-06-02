@@ -11,6 +11,7 @@ viewer is the separately-running Vite dev server on :5173.
 """
 import json
 import re
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -46,6 +47,13 @@ button{{background:#5e35b1;color:#fff;border:0;border-radius:8px}} a{{color:#9c7
 <p class=tip>Pick an existing recording (recommended) or your camera. Reconstructs in ~1–2 min, then links to the 3D viewer.</p>
 <h2 style="font-size:17px;margin-top:28px">🗂️ Your scenes</h2>
 <div id=gallery>{gallery}</div>
+<script>
+function delScene(n){{
+  if(!confirm('Delete scene "'+n+'"? This permanently removes its folder and cannot be undone.')) return;
+  fetch('/delete/'+encodeURIComponent(n),{{method:'POST'}})
+    .then(r=>r.ok?location.reload():r.text().then(t=>alert('Delete failed: '+t)));
+}}
+</script>
 </body></html>"""
 
 RESULT = """<!doctype html><html><head><meta charset=utf-8>
@@ -107,10 +115,13 @@ def _build_gallery(host: str) -> str:
             f'<div style="display:flex;justify-content:space-between;align-items:center;'
             f'padding:12px;margin:8px 0;background:#1c1c22;border-radius:8px">'
             f'<span style="font-size:17px">{s}{badge}</span>'
+            f'<span style="display:flex;gap:8px;align-items:center;width:auto">'
             f'<a class=btn href="{url}" '
             f'style="display:inline-block;width:auto;padding:8px 16px;'
             f'background:#5e35b1;color:#fff;border-radius:8px;text-decoration:none">View 3D →</a>'
-            f"</div>"
+            f'<button onclick="delScene(\'{s}\')" title="Delete scene" '
+            f'style="width:auto;margin:0;padding:8px 12px;background:#933;font-size:16px">🗑</button>'
+            f'</span></div>'
         )
     return "".join(rows)
 
@@ -121,6 +132,19 @@ def index():
     if not HOST_RE.match(host):
         return "invalid host header", 400
     return PAGE.format(gallery=_build_gallery(host))
+
+
+@app.post("/delete/<scene>")
+def delete(scene):
+    # SCENE_RE blocks path separators / '..'; double-check the resolved path stays in SCENES.
+    if not SCENE_RE.match(scene):
+        return "invalid scene name", 400
+    d = (SCENES / scene).resolve()
+    if d.parent != SCENES.resolve() or not d.is_dir():
+        return "no such scene", 404
+    shutil.rmtree(d)
+    STATUS.pop(scene, None)
+    return jsonify(deleted=scene)
 
 
 @app.post("/upload")

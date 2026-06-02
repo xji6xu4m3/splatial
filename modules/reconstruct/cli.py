@@ -16,15 +16,15 @@ def main():
     if Path(scene_id).parts != (scene_id,):
         print(f"error: scene_id must not contain path separators or '..': {scene_id!r}")
         sys.exit(2)
-    max_views = int(os.environ.get("MAX_VIEWS", "16"))  # 12GB caps ~16 @ 448px; more needs a bigger GPU
+    max_views = int(os.environ.get("MAX_VIEWS", "20"))  # 12GB: 16 confirmed, 20 is at the edge (24 OOMs)
     # AnySplat's process_image always resizes the SHORT side to 448 and center-crops to 448x448.
     # Feeding NATIVE frames (long_side=0) lets it DOWNsample sharp pixels; pre-shrinking to 448
     # made it UPSAMPLE a blurry 252-tall image (Bug 4). 0 = native (recommended).
     cap_long_side = int(os.environ.get("CAPTURE_LONG_SIDE", "0"))
     # Blur-aware fixed-rate sampling: ~CAPTURE_RATE views/sec, clamped to [MIN_VIEWS, max_views],
     # keeping the sharpest frame per time window. Coverage scales with clip length (VRAM-bounded).
-    rate = float(os.environ.get("CAPTURE_RATE", "1.0"))
-    min_views = int(os.environ.get("MIN_VIEWS", "8"))
+    rate = float(os.environ.get("CAPTURE_RATE", "1.5"))
+    min_views = int(os.environ.get("MIN_VIEWS", "16"))
     d = scene_dir(scenes_root, scene_id)
     frames = extract_frames(video, str(d / "frames"), max_frames=max_views,
                             long_side=cap_long_side, rate=rate, min_frames=min_views)
