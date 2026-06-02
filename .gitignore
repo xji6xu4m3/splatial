@@ -1,52 +1,50 @@
-# Large artifacts / data — never commit
+# === Large artifacts / data (never commit) ===
 *.ply
 *.splat
 *.glb.bak
-checkpoints/
-weights/
-*.pth
-*.ckpt
-captures/
-data/
-outputs/
 *.mp4
 *.mov
+*.pth
+*.ckpt
+*.pdf
+checkpoints/
+weights/
+outputs/
+data/                # input videos
+scenes/              # reconstructed scene folders (scene.ply/json/objects.json)
+web/scenes           # symlink -> ../scenes
+web/assets           # symlink -> ../assets
 
-# Python
+# === Vendored / external model repos ===
+AnySplat/
+external_AnySplat/
+
+# === Local setup (machine-specific install/build scripts + their logs) ===
+# Reproducible path is documented in modules/reconstruct/README.md + tools/patch_anysplat.py
+scripts/setup/
+
+# === Python ===
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
 venv/
 env/
-*.egg-info/
+.pytest_cache/
 .ipynb_checkpoints/
 
-# Node / web viewer
+# === Node / web viewer ===
 node_modules/
 dist/
 .cache/
+web/test-results/
+web/playwright-report/
 
-# Unity (if used for the viewer)
-[Ll]ibrary/
-[Tt]emp/
-[Oo]bj/
-[Bb]uild/
-[Bb]uilds/
-[Ll]ogs/
-[Uu]ser[Ss]ettings/
-*.csproj
-*.sln
+# === Tooling / scratch ===
+.playwright-mcp/
 
-# OS / editor
+# === OS / editor ===
 .DS_Store
 .idea/
 .vscode/
 *.swp
-
-# Keep the source PDFs out of git (large binaries)
-*.pdf
-AnySplat/
-external_AnySplat/
-data/
-scripts_install_anysplat.sh
-install_anysplat.log
