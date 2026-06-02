@@ -10,6 +10,11 @@ export async function createViewer(container, plyUrl, opts = {}) {
     // Avoid SharedArrayBuffer (needs cross-origin isolation / COOP+COEP headers).
     // Disabling shared-memory workers makes the viewer work on a plain dev server.
     sharedMemoryForWorkers: false,
+    // ...but without shared memory the CPU splat-sort copies the whole buffer each time the
+    // view changes — a multi-second stall on ~1M splats. Sort on the GPU instead (no copy),
+    // with an integer distance map, so leveling/turning respond immediately.
+    gpuAcceleratedSort: true,
+    integerBasedSort: true,
   })
   await viewer.addSplatScene(plyUrl, { showLoadingUI: true })
   // Cap render resolution. Phones report devicePixelRatio 2–3; rendering ~1M splats at
