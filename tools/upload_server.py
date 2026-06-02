@@ -143,11 +143,18 @@ def set_up(scene):
     host = request.host.split(":")[0]
     if not HOST_RE.match(host):
         return "invalid host header", 400
-    cors = {"Access-Control-Allow-Origin": f"http://{host}:{VIEWER_PORT}",
+    allowed_origin = f"http://{host}:{VIEWER_PORT}"
+    cors = {"Access-Control-Allow-Origin": allowed_origin,
             "Access-Control-Allow-Methods": "POST, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type", "Vary": "Origin"}
     if request.method == "OPTIONS":
         return ("", 204, cors)
+    # Defense in depth: CORS headers are browser-enforced, so ALSO reject server-side any
+    # request whose Origin isn't the viewer (a forged cross-site POST carries a foreign Origin;
+    # legitimate same-origin/non-browser callers send none).
+    origin = request.headers.get("Origin")
+    if origin is not None and origin != allowed_origin:
+        return ("forbidden origin", 403, cors)
     if not SCENE_RE.match(scene):
         return ("invalid scene name", 400, cors)
     d = (SCENES / scene).resolve()
