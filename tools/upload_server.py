@@ -44,6 +44,8 @@ button{{background:#5e35b1;color:#fff;border:0;border-radius:8px}} a{{color:#9c7
   <button type=submit>Upload &amp; reconstruct</button>
 </form>
 <p class=tip>Pick an existing recording (recommended) or your camera. Reconstructs in ~1–2 min, then links to the 3D viewer.</p>
+<h2 style="font-size:17px;margin-top:28px">🗂️ Your scenes</h2>
+<div id=gallery>{gallery}</div>
 </body></html>"""
 
 RESULT = """<!doctype html><html><head><meta charset=utf-8>
@@ -85,9 +87,40 @@ def _reconstruct(video: str, scene: str):
         STATUS[scene] = f"error: {e}"
 
 
+def _build_gallery(host: str) -> str:
+    """Live listing of reconstructed scenes with one-click viewer links."""
+    if not SCENES.exists():
+        return "<p class=tip>No scenes yet — capture one above.</p>"
+    scenes = sorted(
+        d.name for d in SCENES.iterdir()
+        if d.is_dir() and SCENE_RE.match(d.name)
+        and ((d / "scene.ply").exists() or (d / "scene.json").exists())
+    )
+    if not scenes:
+        return "<p class=tip>No scenes yet — capture one above.</p>"
+    rows = []
+    for s in scenes:
+        state = STATUS.get(s, "")
+        badge = " ⏳" if state == "processing" else (" ❌" if state.startswith("error") else "")
+        url = f"http://{host}:{VIEWER_PORT}/?scene={s}"
+        rows.append(
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'padding:12px;margin:8px 0;background:#1c1c22;border-radius:8px">'
+            f'<span style="font-size:17px">{s}{badge}</span>'
+            f'<a class=btn href="{url}" '
+            f'style="display:inline-block;width:auto;padding:8px 16px;'
+            f'background:#5e35b1;color:#fff;border-radius:8px;text-decoration:none">View 3D →</a>'
+            f"</div>"
+        )
+    return "".join(rows)
+
+
 @app.get("/")
 def index():
-    return PAGE
+    host = request.host.split(":")[0]
+    if not HOST_RE.match(host):
+        return "invalid host header", 400
+    return PAGE.format(gallery=_build_gallery(host))
 
 
 @app.post("/upload")

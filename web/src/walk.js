@@ -2,22 +2,28 @@ import * as THREE from 'three'
 
 /**
  * First-person "walk" controls layered on the splat viewer's orbit rig.
- * Moving translates BOTH the camera and the orbit target along the view direction,
- * so you fly/walk through the scene while drag-to-look and pinch-zoom still work.
+ * Moving translates BOTH the camera and the orbit target along the view direction;
+ * turning yaws the orbit target around the camera. Drag-to-look and pinch-zoom still work.
  *
- * Desktop: W/A/S/D move, Q/E (or Space/Shift) down/up.
- * Mobile: on-screen D-pad (hold to move). Drag with one finger to look.
+ * Desktop:
+ *   W/S or ↑/↓ ... move forward / back
+ *   A/D ......... strafe left / right
+ *   Q/E or ←/→ . turn (yaw) left / right
+ *   Space/Shift  move up / down
+ * Mobile: on-screen pad — ▲▼ move, ◀▶ strafe, ↺↻ turn (hold to act). Drag a finger to look.
  */
 export function enableWalk(viewer, sceneExtent = 3) {
   const cam = viewer.camera
   const target = viewer.controls.target
   const speed = Math.max(0.02, sceneExtent * 0.012) // per-frame step, scaled to scene size
-  const keys = { fwd: 0, back: 0, left: 0, right: 0, up: 0, down: 0 }
+  const turnSpeed = 0.025 // radians/frame
+  const keys = { fwd: 0, back: 0, left: 0, right: 0, up: 0, down: 0, turnL: 0, turnR: 0 }
 
   const KEYMAP = {
     KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back',
-    KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
-    KeyE: 'up', Space: 'up', KeyQ: 'down', ShiftLeft: 'down',
+    KeyA: 'left', KeyD: 'right',
+    KeyQ: 'turnL', ArrowLeft: 'turnL', KeyE: 'turnR', ArrowRight: 'turnR',
+    Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
   }
   addEventListener('keydown', (e) => { const m = KEYMAP[e.code]; if (m) { keys[m] = 1; e.preventDefault() } })
   addEventListener('keyup', (e) => { const m = KEYMAP[e.code]; if (m) keys[m] = 0 })
@@ -25,8 +31,16 @@ export function enableWalk(viewer, sceneExtent = 3) {
   // --- per-frame movement loop ---
   const fwd = new THREE.Vector3(), right = new THREE.Vector3()
   const worldUp = new THREE.Vector3(0, 1, 0), move = new THREE.Vector3()
+  const view = new THREE.Vector3()
   function tick() {
-    fwd.subVectors(target, cam.position); fwd.y *= 1; fwd.normalize()
+    // Turn: yaw the view vector (target relative to camera) around world-up, in place.
+    const turn = (keys.turnL - keys.turnR) * turnSpeed
+    if (turn !== 0) {
+      view.subVectors(target, cam.position).applyAxisAngle(worldUp, turn)
+      target.copy(cam.position).add(view)
+    }
+    // Move: translate camera + target together along the (horizontal) view basis.
+    fwd.subVectors(target, cam.position).normalize()
     right.crossVectors(fwd, worldUp).normalize()
     move.set(0, 0, 0)
     move.addScaledVector(fwd, (keys.fwd - keys.back) * speed)
@@ -37,16 +51,16 @@ export function enableWalk(viewer, sceneExtent = 3) {
   }
   requestAnimationFrame(tick)
 
-  // --- mobile D-pad ---
+  // --- mobile on-screen pad ---
   const pad = document.createElement('div')
   pad.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);' +
     'z-index:1000;display:grid;grid-template-columns:repeat(3,52px);grid-gap:6px;' +
     'touch-action:none;user-select:none;opacity:.9'
-  const mk = (label, k, col, rowExtra = '') => {
+  const mk = (label, k, col) => {
     const b = document.createElement('button')
     b.textContent = label
     b.style.cssText = 'height:52px;border:0;border-radius:10px;background:rgba(94,53,177,.85);' +
-      'color:#fff;font-size:20px;font-weight:700;' + `grid-column:${col};` + rowExtra
+      'color:#fff;font-size:20px;font-weight:700;' + `grid-column:${col};`
     const on = (e) => { keys[k] = 1; e.preventDefault() }
     const off = () => { keys[k] = 0 }
     b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off)
@@ -54,15 +68,14 @@ export function enableWalk(viewer, sceneExtent = 3) {
     return b
   }
   pad.append(
-    mk('▲', 'fwd', 2),
+    mk('↺', 'turnL', 1), mk('▲', 'fwd', 2), mk('↻', 'turnR', 3),
     mk('◀', 'left', 1), mk('▼', 'back', 2), mk('▶', 'right', 3),
-    mk('▼up', 'down', 1), mk('▲up', 'up', 3),
   )
   document.body.appendChild(pad)
 
   // --- one-line hint ---
   const hint = document.createElement('div')
-  hint.textContent = 'WASD / D-pad to walk · drag to look · scroll/pinch to zoom'
+  hint.textContent = 'W/S move · A/D strafe · Q/E or ←/→ turn · drag to look · scroll/pinch zoom'
   hint.style.cssText = 'position:fixed;top:12px;right:12px;z-index:1000;padding:8px 12px;' +
     'background:rgba(0,0,0,.55);color:#ddd;border-radius:8px;font:13px system-ui'
   document.body.appendChild(hint)
