@@ -2,6 +2,7 @@ import { createViewer } from './splatViewer.js'
 import { loadSceneMeta } from './sceneLoader.js'
 import { placeObject } from './objects.js'
 import { enableWalk } from './walk.js'
+import { enableLevel } from './level.js'
 import * as THREE from 'three'
 
 const app = document.getElementById('app')
@@ -46,6 +47,7 @@ async function boot() {
     ? Math.hypot(...scene.bbox[1].map((hi, i) => hi - scene.bbox[0][i]))
     : 3
   enableWalk(viewer, extent, up)
+  enableLevel(viewer, sceneId)
   window.__viewer = viewer
   window.__objectCount = objects.length
 }

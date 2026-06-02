@@ -38,6 +38,8 @@ export function enableWalk(viewer, sceneExtent = 3, up = [0, 1, 0]) {
   const worldUp = new THREE.Vector3(up[0], up[1], up[2]).normalize(), move = new THREE.Vector3()
   const view = new THREE.Vector3()
   function tick() {
+    // Follow the camera's live up axis so manual leveling (level.js) keeps yaw/strafe level too.
+    worldUp.copy(cam.up).normalize()
     // Turn: yaw the view vector (target relative to camera) around world-up, in place.
     const turn = (keys.turnL - keys.turnR) * turnSpeed
     if (turn !== 0) {

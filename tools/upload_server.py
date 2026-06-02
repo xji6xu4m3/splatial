@@ -134,6 +134,29 @@ def index():
     return PAGE.format(gallery=_build_gallery(host))
 
 
+@app.route("/up/<scene>", methods=["POST", "OPTIONS"])
+def set_up(scene):
+    # Persist a hand-leveled up vector from the viewer (cross-origin :5173 -> :8090, so CORS).
+    cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"}
+    if request.method == "OPTIONS":
+        return ("", 204, cors)
+    if not SCENE_RE.match(scene):
+        return ("invalid scene name", 400, cors)
+    d = (SCENES / scene).resolve()
+    sj = d / "scene.json"
+    if d.parent != SCENES.resolve() or not sj.exists():
+        return ("no such scene", 404, cors)
+    data = request.get_json(silent=True) or {}
+    up = data.get("up")
+    if not (isinstance(up, list) and len(up) == 3 and all(isinstance(x, (int, float)) for x in up)):
+        return ("up must be [x,y,z]", 400, cors)
+    meta = json.loads(sj.read_text())
+    meta["up"] = [float(x) for x in up]
+    sj.write_text(json.dumps(meta, indent=2))
+    return (json.dumps({"ok": True, "up": meta["up"]}), 200, {**cors, "Content-Type": "application/json"})
+
+
 @app.post("/delete/<scene>")
 def delete(scene):
     # SCENE_RE blocks path separators / '..'; double-check the resolved path stays in SCENES.
