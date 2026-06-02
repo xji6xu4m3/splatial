@@ -4,6 +4,8 @@ import numpy as np
 
 
 def resize_long_side(img: np.ndarray, long_side: int) -> np.ndarray:
+    if not long_side or long_side <= 0:
+        return img  # <=0 => keep native resolution (let the model's own resize downsample)
     h, w = img.shape[:2]
     scale = long_side / max(h, w)
     if scale >= 1.0:
