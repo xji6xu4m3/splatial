@@ -137,8 +137,15 @@ def index():
 @app.route("/up/<scene>", methods=["POST", "OPTIONS"])
 def set_up(scene):
     # Persist a hand-leveled up vector from the viewer (cross-origin :5173 -> :8090, so CORS).
-    cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type"}
+    # Scope CORS to the viewer origin on THIS host (not '*'), so a random site can't rewrite
+    # scene.json via the user's browser. The viewer always calls us at location.hostname:8090,
+    # so its Origin is http://<this-host>:5173 — echo exactly that (host validated).
+    host = request.host.split(":")[0]
+    if not HOST_RE.match(host):
+        return "invalid host header", 400
+    cors = {"Access-Control-Allow-Origin": f"http://{host}:{VIEWER_PORT}",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type", "Vary": "Origin"}
     if request.method == "OPTIONS":
         return ("", 204, cors)
     if not SCENE_RE.match(scene):
