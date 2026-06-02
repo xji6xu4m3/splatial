@@ -86,4 +86,27 @@ object near frame edges). For a good object scan:
 - **Post-opt:** orphaned (`tools/postopt.sh` exists but isn't in the default path). Gate behind `REFINE=1`.
 - **Re-measure PSNR on pet1** — no pet1 eval exists; the 7.95→9.58 numbers are room2 only.
 
+## Follow-up experiment (pet2): more views + post-opt — verified results
+
+Ran pet2 through the new pipeline to test the two density levers. Verified, not guessed:
+
+- **24 views → OOM** at the AnySplat voxelization step (`scatter_add`, tried to alloc 2.98 GB,
+  2.15 GB free). Auto-fell back to **16 views**, which succeeds. **16 is the hard ceiling on 12 GB.**
+- **Blur-aware sampler vs fixed-16:** marginal — pet2's frames weren't badly blurred (VoL 300–740),
+  so sharpest-per-window only slightly crisped the fur/mouse. Big value is on longer/shakier clips.
+- **Post-optimization at 8 views (7 ctx + 1 holdout) HURTS:**
+  - held-out PSNR **14.37 → 14.37** (flat), SSIM **0.466 → 0.415** (worse), LPIPS **0.405 → 0.440** (worse).
+  - Visually it overfits the 7 training poses into **spiky "needle" Gaussians** that look fine from a
+    training view but explode from any other angle (see `docs/media/cmp2-postopt-pet2ref.jpeg`).
+  - This is exactly the paper's documented sparse-view overfitting failure. **Do NOT default post-opt;**
+    it only helps with many, well-overlapping views (paper used 200). room2's earlier 7.95→9.58 "win"
+    was off a near-random baseline, not a real gain.
+- **Bonus correction:** the post-opt eval harness renders held-out views from AnySplat's *predicted*
+  poses, giving a *correct* PSNR of **~14.4** for the feed-forward result — so the earlier "8–9.5" was a
+  flawed/absent measurement. The feed-forward reconstruction is healthier than we feared.
+
+**Verdict:** on the 4070 Ti, **feed-forward at 16 views is the practical best**; the path to genuinely
+denser/sharper is a bigger GPU (30–60 views, where post-opt also starts to help) or cleaner capture —
+not post-opt at low view counts.
+
 Full audit report: workflow `splatial-quality-audit` (run wf_7a1b8462-4d9).
