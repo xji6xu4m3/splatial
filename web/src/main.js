@@ -26,9 +26,13 @@ async function boot() {
   const c = (scene.bbox && scene.bbox.length === 2)
     ? scene.bbox[0].map((lo, i) => (lo + scene.bbox[1][i]) / 2)
     : [0, 0, 0]
+  // Use the scene's recovered gravity-up (from AnySplat's predicted cameras) as the camera/orbit
+  // up axis, so the floor renders level instead of tilted. Falls back to +Y for legacy scenes.
+  const up = (Array.isArray(scene.up) && scene.up.length === 3) ? scene.up : [0, 1, 0]
   const viewer = await createViewer(app, `/scenes/${sceneId}/${scene.ply}`, {
     cameraPosition: [0, 0, 0.1],
     lookAt: c,
+    cameraUp: up,
   })
   // Dark neutral background so thin/empty splat areas read as depth, not glaring white.
   viewer.renderer.setClearColor(new THREE.Color(0x0d0d12), 1)
@@ -41,7 +45,7 @@ async function boot() {
   const extent = (scene.bbox && scene.bbox.length === 2)
     ? Math.hypot(...scene.bbox[1].map((hi, i) => hi - scene.bbox[0][i]))
     : 3
-  enableWalk(viewer, extent)
+  enableWalk(viewer, extent, up)
   window.__viewer = viewer
   window.__objectCount = objects.length
 }

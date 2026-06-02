@@ -12,7 +12,7 @@ import * as THREE from 'three'
  *   Space/Shift  move up / down
  * Mobile: on-screen pad — ▲▼ move, ◀▶ strafe, ↺↻ turn (hold to act). Drag a finger to look.
  */
-export function enableWalk(viewer, sceneExtent = 3) {
+export function enableWalk(viewer, sceneExtent = 3, up = [0, 1, 0]) {
   const cam = viewer.camera
   const target = viewer.controls.target
   // OrbitControls binds W/A/S/D and arrow keys to PANNING (keys:{LEFT:KeyA,...}, enablePan:true).
@@ -34,7 +34,8 @@ export function enableWalk(viewer, sceneExtent = 3) {
 
   // --- per-frame movement loop ---
   const fwd = new THREE.Vector3(), right = new THREE.Vector3()
-  const worldUp = new THREE.Vector3(0, 1, 0), move = new THREE.Vector3()
+  // Gravity-up from the scene (AnySplat poses), so yaw and strafe stay level on a tilted scan.
+  const worldUp = new THREE.Vector3(up[0], up[1], up[2]).normalize(), move = new THREE.Vector3()
   const view = new THREE.Vector3()
   function tick() {
     // Turn: yaw the view vector (target relative to camera) around world-up, in place.
