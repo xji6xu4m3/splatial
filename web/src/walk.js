@@ -15,6 +15,10 @@ import * as THREE from 'three'
 export function enableWalk(viewer, sceneExtent = 3) {
   const cam = viewer.camera
   const target = viewer.controls.target
+  // OrbitControls binds W/A/S/D and arrow keys to PANNING (keys:{LEFT:KeyA,...}, enablePan:true).
+  // walk.js owns all translation, so leaving pan on means every move key fires twice — e.g. W
+  // moves forward AND pans the camera up, which reads as the view drifting vertically. Disable it.
+  if (viewer.controls) viewer.controls.enablePan = false
   const speed = Math.max(0.02, sceneExtent * 0.012) // per-frame step, scaled to scene size
   const turnSpeed = 0.025 // radians/frame
   const keys = { fwd: 0, back: 0, left: 0, right: 0, up: 0, down: 0, turnL: 0, turnR: 0 }

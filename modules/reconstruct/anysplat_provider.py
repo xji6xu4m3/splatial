@@ -68,11 +68,19 @@ class AnySplatReconstructor:
     def _export_ply(self, gaussians, out_ply: Path) -> None:
         """Write a standard 3DGS .ply (INRIA format) for the web splat renderer."""
         self._ensure_repo_on_path()
+        import torch
         from src.model.ply_export import export_ply
 
+        # AnySplat outputs opacity as a LINEAR probability in [0,1], and export_ply writes
+        # it verbatim. But the web viewer (and the standard 3DGS .ply convention) applies a
+        # sigmoid on load — so a linear value renders as sigmoid([0,1]) = 0.50..0.73, i.e.
+        # nothing is ever fully opaque or invisible (see-through surfaces + ghost haze).
+        # Store the LOGIT so the viewer's sigmoid recovers the true alpha.
+        op = gaussians.opacities[0].clamp(1e-6, 1.0 - 1e-6)
+        op_logit = torch.log(op / (1.0 - op))
         export_ply(
             gaussians.means[0], gaussians.scales[0], gaussians.rotations[0],
-            gaussians.harmonics[0], gaussians.opacities[0], Path(out_ply),
+            gaussians.harmonics[0], op_logit, Path(out_ply),
         )
 
     def _gaussian_xyz(self, gaussians) -> np.ndarray:
