@@ -49,7 +49,7 @@ button{{background:#5e35b1;color:#fff;border:0;border-radius:8px}} a{{color:#9c7
 <div id=gallery>{gallery}</div>
 <script>
 function delScene(n){{
-  if(!confirm('Delete scene "'+n+'"? This permanently removes its folder and cannot be undone.')) return;
+  if(!confirm('Delete scene "'+n+'"? (moved to scenes/.trash — recoverable)')) return;
   fetch('/delete/'+encodeURIComponent(n),{{method:'POST'}})
     .then(r=>r.ok?location.reload():r.text().then(t=>alert('Delete failed: '+t)));
 }}
@@ -179,9 +179,16 @@ def delete(scene):
     d = (SCENES / scene).resolve()
     if d.parent != SCENES.resolve() or not d.is_dir():
         return "no such scene", 404
-    shutil.rmtree(d)
+    # Soft delete: move to scenes/.trash/<scene> (recoverable) instead of permanent rmtree.
+    # .trash is excluded from the gallery (SCENE_RE rejects the leading dot).
+    trash = SCENES / ".trash"
+    trash.mkdir(exist_ok=True)
+    dest = trash / scene
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.move(str(d), str(dest))
     STATUS.pop(scene, None)
-    return jsonify(deleted=scene)
+    return jsonify(deleted=scene, recoverable=True, trash=str(dest))
 
 
 @app.post("/upload")
