@@ -29,13 +29,15 @@ Scene folder = the unit of exchange: `scenes/<id>/{scene.ply, scene_mobile.ply, 
 | | |
 |---|---|
 | **Receives** | a video file path (`data/<id>.mov`, e.g. 1920×1080 @30fps, ~15 s) |
-| **Outputs** | `scenes/<id>/frames/frame_####.png` — `max_views` frames (default 16) |
-| **Augment / transform** | uniform temporal subsample + optional resize |
+| **Outputs** | `scenes/<id>/frames/frame_####.png` — `N` frames, `N=clamp(round(duration·rate),MIN,MAX)` |
+| **Augment / transform** | **blur-aware fixed-rate** keyframing + optional resize |
 
-**Math.** For `total` decoded frames, pick `max_views` evenly:
-`step = (total−1)/(max_views−1)`, index `i → round(i·step)`. Resize keeps aspect:
-`scale = long_side / max(h,w)`; **`long_side ≤ 0` ⇒ no-op (keep native)** — the recommended path,
-because the model resizes internally (see §2). Pure logic → TDD (`tests/capture`).
+**Math.** Target a fixed **rate** (≈1 view/sec), so view count scales with length, clamped to
+`[MIN_VIEWS, MAX_VIEWS]`: `N = clamp(round((total/fps)·rate), MIN, MAX)`. Split `[0,total)` into `N`
+equal windows; in each, keep the frame with the highest **focus measure**
+`f = Var(∇²I)` (variance of the Laplacian) → drops motion blur, even windows ⇒ even angular spacing.
+Resize keeps aspect (`scale = long_side/max(h,w)`); **`long_side ≤ 0` ⇒ native** (model resizes
+internally, §2). Pure helpers are TDD-tested (`modules/capture/tests`).
 
 > **Bug 4 (fixed):** pre-shrinking to `long_side=448` produced 448×252 frames that the model
 > then *upscaled* back to 448 (blurry). Default is now native; the model downsamples sharp pixels.

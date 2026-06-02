@@ -21,9 +21,15 @@ def main():
     # Feeding NATIVE frames (long_side=0) lets it DOWNsample sharp pixels; pre-shrinking to 448
     # made it UPSAMPLE a blurry 252-tall image (Bug 4). 0 = native (recommended).
     cap_long_side = int(os.environ.get("CAPTURE_LONG_SIDE", "0"))
+    # Blur-aware fixed-rate sampling: ~CAPTURE_RATE views/sec, clamped to [MIN_VIEWS, max_views],
+    # keeping the sharpest frame per time window. Coverage scales with clip length (VRAM-bounded).
+    rate = float(os.environ.get("CAPTURE_RATE", "1.0"))
+    min_views = int(os.environ.get("MIN_VIEWS", "8"))
     d = scene_dir(scenes_root, scene_id)
-    frames = extract_frames(video, str(d / "frames"), max_frames=max_views, long_side=cap_long_side)
-    print(f"extracted {len(frames)} frames; engine={engine}; max_views={max_views}; long_side={cap_long_side or 'native'}")
+    frames = extract_frames(video, str(d / "frames"), max_frames=max_views,
+                            long_side=cap_long_side, rate=rate, min_frames=min_views)
+    print(f"extracted {len(frames)} frames; engine={engine}; views=[{min_views},{max_views}]@{rate}/s; "
+          f"long_side={cap_long_side or 'native'}")
     recon = make_reconstructor(engine)
     recon.max_views = max_views  # let the reconstructor consume all sampled views
     scene = recon.reconstruct(frames, scene_id, d / "scene.ply")

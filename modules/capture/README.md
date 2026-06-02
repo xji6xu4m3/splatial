@@ -1,22 +1,45 @@
 # capture
 
-Extracts uniformly-spaced frames from a phone video and resizes them for the reconstruction pipeline.
+Selects the best frames from a phone video (blur-aware, fixed-rate) and resizes them for the
+reconstruction pipeline.
+
+## Sampling strategy
+
+Rather than a fixed view **count**, we target a fixed **rate** (≈1 view/sec, like AnySplat's
+demo) so coverage scales with clip length, bounded to `[min_frames, max_frames]` for VRAM. The
+clip is split into that many equal time **windows**, and within each window we keep the
+**sharpest** frame (variance-of-Laplacian) to drop motion blur. Even windows over a steady sweep
+give roughly even angular spacing. (True motion/speed-awareness would use optical flow — a
+future refinement.)
 
 ## Public API
 
-### `resize_long_side(img: np.ndarray, long_side: int) -> np.ndarray`
+### `resize_long_side(img, long_side) -> np.ndarray`
+Resize a BGR image so its longest dimension equals `long_side` (downscale only, `INTER_AREA`).
+`long_side <= 0` keeps native resolution (the model resizes internally).
 
-Resizes a BGR image so its longest dimension equals `long_side`. Returns the image unchanged if it is already smaller. Uses `cv2.INTER_AREA` (good for downscaling).
+### `variance_of_laplacian(img) -> float`
+Focus measure (higher = sharper) used to pick the least-blurred frame per window.
 
-### `pick_frame_indices(total: int, max_frames: int) -> list[int]`
+### `target_view_count(total_frames, fps, rate=1.0, min_frames=8, max_frames=16) -> int`
+How many views to keep: `clamp(round(duration*rate), min, max)`, never exceeding `total_frames`.
 
-Returns a list of at most `max_frames` frame indices, uniformly distributed from 0 to `total-1` inclusive. If `total <= max_frames`, returns `list(range(total))`. If `max_frames <= 1`, returns `[0]` (only the first frame).
+### `window_bounds(total, n) -> list[(lo, hi)]`
+Partition `[0, total)` into `n` contiguous, non-overlapping windows.
 
-### `extract_frames(video_path, out_dir, max_frames=16, long_side=448) -> list[Path]`
+### `select_sharpest_per_window(sharpness, bounds) -> list[int]`
+Pure: the highest-sharpness frame index within each window.
 
-Opens a video file, samples up to `max_frames` frames uniformly, resizes each so its longest side is `<= long_side`, and writes them as `frame_NNNN.png` into `out_dir` (created if absent). Returns the list of written `Path` objects.
+### `extract_frames(video_path, out_dir, max_frames=16, long_side=448, rate=1.0, min_frames=8, blur_aware=True) -> list[Path]`
+Sample frames and write `frame_NNNN.png` to `out_dir`. Default = blur-aware fixed-rate (above);
+`blur_aware=False` falls back to uniform `pick_frame_indices`. Raises `FileNotFoundError` if the
+video can't be opened, `RuntimeError` if nothing was extracted.
 
-Raises `FileNotFoundError` if the video cannot be opened, and `RuntimeError` if no frames were extracted.
+### `pick_frame_indices(total, max_frames) -> list[int]`
+Uniform temporal subsample (legacy / fallback when fps is unknown).
+
+Tuned at the CLI via env: `MAX_VIEWS` (default 16), `MIN_VIEWS` (8), `CAPTURE_RATE` (1.0 /sec),
+`CAPTURE_LONG_SIDE` (0 = native).
 
 ## Data contracts
 
