@@ -7,14 +7,13 @@ export async function createViewer(container, plyUrl, opts = {}) {
     initialCameraPosition: opts.cameraPosition || [0, 0, 4],
     initialCameraLookAt: opts.lookAt || [0, 0, 0],
     sphericalHarmonicsDegree: 0,
-    // Avoid SharedArrayBuffer (needs cross-origin isolation / COOP+COEP headers).
-    // Disabling shared-memory workers makes the viewer work on a plain dev server.
-    sharedMemoryForWorkers: false,
-    // ...but without shared memory the CPU splat-sort copies the whole buffer each time the
-    // view changes — a multi-second stall on ~1M splats. Sort on the GPU instead (no copy),
-    // with an integer distance map, so leveling/turning respond immediately.
-    gpuAcceleratedSort: true,
-    integerBasedSort: true,
+    // SharedArrayBuffer lets the sort worker read splat data in place instead of copying the
+    // whole buffer on every view change — this kills the multi-second leveling/turning stall.
+    // It needs cross-origin isolation (COOP + COEP), which vite.config.js sets via headers.
+    // NOTE: gpuAcceleratedSort was tried instead but rendered ZERO draw calls (black screen)
+    // on this build — do NOT re-enable it without a *visual* render check (a black canvas
+    // still reports 60 FPS, so frame-rate alone is not proof the splats are drawing).
+    sharedMemoryForWorkers: true,
   })
   await viewer.addSplatScene(plyUrl, { showLoadingUI: true })
   // Cap render resolution. Phones report devicePixelRatio 2–3; rendering ~1M splats at

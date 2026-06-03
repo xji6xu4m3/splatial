@@ -18,20 +18,40 @@ home.style.cssText = 'position:fixed;top:12px;left:12px;z-index:1000;padding:10p
   'text-decoration:none'
 document.body.appendChild(home)
 
+// Pick a camera position that frames the whole bbox: centre, backed off along a horizontal
+// direction (perpendicular to the up axis) by ~1.3× the diagonal, raised ~0.25× the diagonal.
+function frameCamera(center, bbox, up) {
+  const U = new THREE.Vector3(up[0], up[1], up[2]).normalize()
+  const diag = (bbox && bbox.length === 2)
+    ? Math.hypot(...bbox[1].map((hi, i) => hi - bbox[0][i]))
+    : 3
+  // Horizontal forward = the world axis least aligned with up, with the up-component removed
+  // (so it lies in the ground plane). Gives a natural eye-level vantage on a tilted scene.
+  const axes = [new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)]
+  const base = axes.reduce((a, b) => (Math.abs(a.dot(U)) <= Math.abs(b.dot(U)) ? a : b))
+  const horiz = base.clone().addScaledVector(U, -base.dot(U)).normalize()
+  const C = new THREE.Vector3(center[0], center[1], center[2])
+  const pos = C.clone().addScaledVector(horiz, -1.3 * diag).addScaledVector(U, 0.25 * diag)
+  return [pos.x, pos.y, pos.z]
+}
+
 async function boot() {
   const { scene, objects } = await loadSceneMeta(sceneId)
   if (!/^[a-zA-Z0-9_.-]+\.ply$/.test(scene.ply)) throw new Error('Invalid ply path')
-  // Start the camera near the capture origin (AnySplat's first-frame pose = world origin),
-  // looking toward the scene centre — i.e. roughly "standing where you filmed", which is
-  // where a feed-forward splat looks best. Drag to look, scroll/pinch to move through it.
-  const c = (scene.bbox && scene.bbox.length === 2)
-    ? scene.bbox[0].map((lo, i) => (lo + scene.bbox[1][i]) / 2)
-    : [0, 0, 0]
   // Use the scene's recovered gravity-up (from AnySplat's predicted cameras) as the camera/orbit
   // up axis, so the floor renders level instead of tilted. Falls back to +Y for legacy scenes.
   const up = (Array.isArray(scene.up) && scene.up.length === 3) ? scene.up : [0, 1, 0]
+  // Frame the WHOLE scene on load. AnySplat puts camera-0 at the world origin, which usually
+  // sits INSIDE the point cloud — spawning there shows a wall of near splats and reads as "empty"
+  // until you fly out. Instead, look at the bbox centre from outside: back off along a horizontal
+  // axis (perpendicular to up) by ~1.3× the bbox diagonal, raised a bit. Guarantees the object is
+  // on-screen regardless of how the scan was framed.
+  const c = (scene.bbox && scene.bbox.length === 2)
+    ? scene.bbox[0].map((lo, i) => (lo + scene.bbox[1][i]) / 2)
+    : [0, 0, 0]
+  const camPos = frameCamera(c, scene.bbox, up)
   const viewer = await createViewer(app, `/scenes/${sceneId}/${scene.ply}`, {
-    cameraPosition: [0, 0, 0.1],
+    cameraPosition: camPos,
     lookAt: c,
     cameraUp: up,
   })
