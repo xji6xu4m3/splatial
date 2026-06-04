@@ -124,11 +124,21 @@ gsplat refiner (`src/post_opt/simple_trainer.py`) that re-runs AnySplat for init
    and build `fused_ssim` (CUDA, same recipe as pytorch3d — CUDA_HOME=ml env, CPATH, sm_89).
 
 **Run:** `tools/postopt.sh <frames_dir> <result_dir> [steps]` → refined PLY in
-`<result_dir>/ply/`, metrics in `<result_dir>/stats/val_step*.json`.
+`<result_dir>/ply/`, then `tools/postopt_to_scene.py <refined_ply> <scene_id>` to make it
+viewer-ready (see conventions below). Metrics in `<result_dir>/stats/val_step*.json`.
 
-**12 GB constraint:** the voxelization OOMs above ~8 views, so post-opt is limited to a
-small frame subset on the 4070 Ti (cap views, `sh-degree 1`, `expandable_segments`). More
-views → better quality → needs a larger/cloud GPU.
+**12 GB constraint:** fits **~17 init views at 448²** in ~9.9 GB (the old "~8 views OOMs" note
+was stale — the `no_grad` init patch + `expandable_segments` lifted it). More views still needs
+a cloud GPU.
 
-**Verified (room2, 8 frames, 3k steps):** PSNR 7.95→9.58, SSIM 0.317→0.451 (peak 6.1 GB).
-A measurable gain; absolute fidelity is low due to sparse views + held-out-pose error.
+**Viewer conventions (must do, else the refined PLY renders wrong):**
+- `--sh-degree 0` — the web viewer reads only `f_dc`; SH≥1 hides colour in `f_rest` → washed out.
+- opacity **linear→logit** — gsplat `--save-ply` writes linear `[0,1]`; the viewer applies sigmoid
+  → fog without conversion. `postopt_to_scene.py` handles this.
+- **needle removal** — post-opt grows ultra-elongated splats (median 69:1, top 10 % > 56 000:1)
+  that streak from off-trajectory angles; `postopt_to_scene.py` drops the top-anisotropy tail.
+
+**Status: DISABLED by default.** Verified on these sparse handheld captures: +1.8 dB held-out PSNR
+but **overfits the trajectory** → looks worse than feed-forward from free-orbit (even at 17 views;
+MCMC + opacity/scale regularization did not fix it). Kept as an offline tool for dense captures.
+Full analysis: [`experiments/RESULTS.md`](../../experiments/RESULTS.md).

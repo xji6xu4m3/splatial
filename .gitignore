@@ -4,14 +4,17 @@
 *.glb.bak
 *.mp4
 *.mov
+*.MOV
 *.pth
 *.ckpt
 *.pdf
 checkpoints/
 weights/
 outputs/
-data/                # input videos
+data/                # input videos (uploaded/extracted)
+videos/              # original source videos (.MOV/.mp4) — ignore the whole dir
 scenes/              # reconstructed scene folders (scene.ply/json/objects.json)
+experiments/archive/ # archived PLY snapshots of known-good scenes
 web/scenes           # symlink -> ../scenes
 web/assets           # symlink -> ../assets
 
