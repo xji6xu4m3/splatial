@@ -69,6 +69,16 @@ residual room haze/needles.
   dense enough; the OOM + 3 convention fixes make them correct if revisited. Experimental scenes:
   room1po (Default+clean), room1mcmc (MCMC+clean) — kept for reference, not deployed.
 
+
+## 784 vs 616 crop, fixed view budget (2026-06-04) — views >> FOV
+Tested whether the full-FOV 448×784 crop (which OOMs at 16 views, forcing fewer) beats 448×616@16.
+Matched A/B on the same 10 frames / 7 context views (isolates FOV only):
+- 616: PSNR 11.90 / SSIM 0.626 / LPIPS 0.610
+- 784: PSNR 11.56 / SSIM 0.657 / LPIPS 0.628  (≈wash: +SSIM, −PSNR)
+But view count dominates: 16 views → 17.55 PSNR vs 7 views → ~11.6 (**−5.6 dB**). Since 784 forces
+the view count DOWN (OOMs at 16), the coverage lost costs ~15× more than the FOV gained.
+**Decision: keep 448×616 @ 16 views. Do NOT trade views for the taller crop.**
+
 ### Open decision (object)
 pet1's remaining "background" is the **desk surface** the toy sits on — real geometry, not
 floaters. Keeping it = object-in-context; removing it (segmentation/DBSCAN) = isolated turntable
