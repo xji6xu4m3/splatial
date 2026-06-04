@@ -81,6 +81,13 @@ def extract_frames(video_path: str, out_dir: str, max_frames: int = 16,
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise FileNotFoundError(f"cannot open video: {video_path}")
+    # Phones record sensor-native (landscape) pixels plus a rotation flag in the container so
+    # players show the clip upright. OpenCV's FFmpeg backend does NOT apply that flag by default
+    # (pre-4.12), so a portrait-filmed video decodes 90° sideways — which makes the whole 3DGS
+    # reconstruction come out tipped on its side (a heavily-tilted recovered up axis). Honour the
+    # rotation so frames are upright before they reach the model. Guarded: older cv2 lacks the prop.
+    if hasattr(cv2, "CAP_PROP_ORIENTATION_AUTO"):
+        cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
 

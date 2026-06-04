@@ -53,7 +53,14 @@ export function enableWalk(viewer, sceneExtent = 3, up = [0, 1, 0]) {
     move.addScaledVector(fwd, (keys.fwd - keys.back) * speed)
     move.addScaledVector(right, (keys.right - keys.left) * speed)
     move.addScaledVector(worldUp, (keys.up - keys.down) * speed)
-    if (move.lengthSq() > 0) { cam.position.add(move); target.add(move) }
+    const moved = move.lengthSq() > 0
+    if (moved) { cam.position.add(move); target.add(move) }
+    // The splat library only re-sorts on TRANSLATION after the camera travels >= 1.0 world unit
+    // (an absolute threshold, while AnySplat scale is arbitrary), so forward/back motion looks
+    // frozen until it snaps — unlike rotation, which re-sorts every ~8deg. Force a re-sort each
+    // frame we move so walking is as smooth as dragging. The library's own `sortRunning` guard
+    // coalesces these, so calling every frame is cheap (it no-ops while a sort is in flight).
+    if (moved || turn !== 0) viewer.runSplatSort?.(true)
     requestAnimationFrame(tick)
   }
   requestAnimationFrame(tick)
