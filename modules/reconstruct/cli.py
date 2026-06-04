@@ -61,14 +61,20 @@ def main():
 
     # Mobile-friendly prune: phones can't load multi-million-splat PLYs. Emit a capped
     # scene_mobile.ply and point the scene at it (full PLY kept as source_meta.full_ply).
+    # SCENE_MODE=object additionally runs geometric floater cleanup (scale-needle + SOR) with a
+    # higher opacity floor — for object scans whose subject sits in stringy background spray.
+    # Default 'room' preserves the density-friendly uniform subsample (no floater removal).
     cap = int(os.environ.get("MAX_GAUSSIANS", "1100000"))
-    if scene.source_meta["n_gaussians"] > cap:
+    mode = os.environ.get("SCENE_MODE", "room").lower()
+    min_alpha = 0.03 if mode == "object" else 0.004
+    if scene.source_meta["n_gaussians"] > cap or mode == "object":
         from modules.reconstruct.optimize_ply import prune_ply
-        kept, total = prune_ply(d / "scene.ply", d / "scene_mobile.ply", max_gaussians=cap)
+        kept, total = prune_ply(d / "scene.ply", d / "scene_mobile.ply",
+                                max_gaussians=cap, min_alpha=min_alpha, mode=mode)
         scene.source_meta["full_ply"] = "scene.ply"
         scene.source_meta["n_gaussians"] = kept
         scene.ply = "scene_mobile.ply"
-        print(f"pruned {total} -> {kept} gaussians (scene_mobile.ply)")
+        print(f"pruned {total} -> {kept} gaussians (scene_mobile.ply, mode={mode})")
     save_scene(scenes_root, scene)
 
 
