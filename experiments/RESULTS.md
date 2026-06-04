@@ -21,9 +21,19 @@ the only non-commercial (CC-BY-NC) file from the reconstruct path.
 
 ## Ranked experiment queue (from research synthesis)
 1. ✅ Poses+held-out eval harness (this table's control)
-2. ⏳ Non-square portrait crop 448×616 (recover vertical FOV) — room density
-3. ⏳ Scale-needle + SOR floater cleanup (object mode) — pet1 floaters
-4. ⏳ AnySplat in-model conf/opacity gates (object mode) — pet1 floaters
-5. ⏳ Room view-count / resolution sweep — room density
-6. ⏳ gsplat photometric post-opt (Default=room / MCMC=object) — both (biggest lever)
-7. ⏳ DBSCAN/projection finishing pass — pet1 floaters (only if residue)
+2. ✅ Non-square portrait crop 448×616 — DEPLOYED (room SSIM+density, pet1 clean sweep)
+3. ✅ Object floater cleanup (oversize + SOR) — DEPLOYED for pet1. Removes isolated stringy
+   spray, subject preserved. **Anisotropy gate rejected** (deleted real flat surface splats).
+   Connected desk cloud remains (needs rank-6/7 or segmentation).
+4. ⏭️ AnySplat in-model conf/opacity gates — DEFERRED (fiddly encoder internals, modest gain;
+   rank-6 MCMC achieves the same floater dissolution more reliably)
+5. ⏭️ View sweep — PARTIALLY ANSWERED: 20@616 OOMs, 16@616 is the VRAM-optimal point (deployed).
+   Full views×res grid deprioritized (VRAM already pins the operating point).
+6. ⏳ **gsplat photometric post-opt (Default=room / MCMC=object) — THE big lever, +1.5-4 dB.**
+   Needs: persist poses (cameras.npz) + refine.py (gsplat trainer) + eval_ply.py (PLY-render eval).
+7. ⏳ DBSCAN/segmentation finishing — pet1 desk removal (only if the object should be isolated)
+
+### Open decision
+pet1's remaining "background" is the **desk surface** the toy sits on — real geometry, not
+floaters. Keeping it = object-in-context; removing it (segmentation/DBSCAN) = isolated turntable
+object. Affects rank-7 and what "clean" means. **Ask user.**
