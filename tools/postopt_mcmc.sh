@@ -19,16 +19,23 @@
 # VRAM scales with cap-max: 8M needs an A100 (40GB) comfortably; on L4 (24GB) drop to ~4-5M.
 #
 # SH degree MUST be 0 (web viewer reads only f_dc) — see postopt.sh for the full rationale.
+#
+# OPACITY_REG (env, default 0.01): penalizes total per-splat opacity. RAISE it (e.g. 0.03) to kill
+# the diffuse mid-air "explainer" splats that post-opt parks in the room volume — they look fine
+# from the capture trajectory but show as blob floaters + rainbow speckle from novel external
+# orbits. Too high slightly thins detail. SCALE_REG (default 0.01) caps needle elongation.
 set -euo pipefail
 FRAMES="$1"; RESULT="$2"; STEPS="${3:-3000}"
 AS="${ANYSPLAT_ENV:-/home/liylo/anaconda3/envs/anysplat}"
 CAP_MAX="${CAP_MAX:-8000000}"
+OPACITY_REG="${OPACITY_REG:-0.01}"
+SCALE_REG="${SCALE_REG:-0.01}"
 cd "$(dirname "$0")/../external_AnySplat"
 env PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True "$AS/bin/python" \
   src/post_opt/simple_trainer.py mcmc \
   --data-dir "$FRAMES" --result-dir "$RESULT" \
   --max-steps "$STEPS" --eval-steps 1 "$STEPS" --save-ply --ply-steps "$STEPS" \
   --disable-video --sh-degree 0 \
-  --opacity-reg 0.01 --scale-reg 0.01 \
+  --opacity-reg "$OPACITY_REG" --scale-reg "$SCALE_REG" \
   --strategy.cap-max "$CAP_MAX"
-echo "Refined PLY (MCMC, cap=$CAP_MAX): $RESULT/ply/  ·  metrics: $RESULT/stats/val_step*.json"
+echo "Refined PLY (MCMC, cap=$CAP_MAX, opacity_reg=$OPACITY_REG): $RESULT/ply/  ·  metrics: $RESULT/stats/val_step*.json"
