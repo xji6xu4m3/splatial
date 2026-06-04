@@ -54,6 +54,21 @@ Re-investigated the post-opt the user remembered OOMing.
   opacity/scale regularization; (c) denser capture (more overlap); (d) constrain viewer default
   camera near the trajectory. Feed-forward baseline currently looks better for free orbit.
 
+### Post-opt MCMC + regularization (2026-06-04) — did NOT fix the haze
+Tried `simple_trainer.py mcmc` (opacity_reg=scale_reg=0.01, SH0, 1000 steps) to dissolve the
+residual room haze/needles.
+- PSNR 12.46→**13.54 (+1.08 dB)** — *less* than DefaultStrategy (+1.79).
+- Regularization too weak to matter: needle anisotropy median **61 vs 69** (≈unchanged),
+  p90 actually higher; mean alpha 0.59→0.54. Visually still hazy from free-orbit.
+- **Verdict: post-opt is not worth it on these sparse (17-view) handheld captures.** It improves
+  the held-out metric but overfits the trajectory → looks worse than feed-forward from the
+  viewer's free-orbit camera. Neither Default nor MCMC produces a clean free-orbit result.
+- **DECISION: post-opt DISABLED as default.** It was never wired into the deployed CLI, so the
+  shipped scenes (scenes/room1, scenes/pet1) are already feed-forward-only. `tools/postopt.sh` +
+  `tools/postopt_to_scene.py` remain as an OPTIONAL offline "hero scene" tool for when capture is
+  dense enough; the OOM + 3 convention fixes make them correct if revisited. Experimental scenes:
+  room1po (Default+clean), room1mcmc (MCMC+clean) — kept for reference, not deployed.
+
 ### Open decision (object)
 pet1's remaining "background" is the **desk surface** the toy sits on — real geometry, not
 floaters. Keeping it = object-in-context; removing it (segmentation/DBSCAN) = isolated turntable
