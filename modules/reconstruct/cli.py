@@ -16,7 +16,9 @@ def main():
     if Path(scene_id).parts != (scene_id,):
         print(f"error: scene_id must not contain path separators or '..': {scene_id!r}")
         sys.exit(2)
-    max_views = int(os.environ.get("MAX_VIEWS", "20"))  # 12GB: 16 confirmed, 20 is at the edge (24 OOMs)
+    # 12GB: at the default CROP_LONG_CAP=616 (taller portrait crop), 16 views is the safe ceiling
+    # for the full export path — 20@616 OOMs in voxelization. (At the old 448 square, 20 fit.)
+    max_views = int(os.environ.get("MAX_VIEWS", "16"))
     # AnySplat's process_image always resizes the SHORT side to 448 and center-crops to 448x448.
     # Feeding NATIVE frames (long_side=0) lets it DOWNsample sharp pixels; pre-shrinking to 448
     # made it UPSAMPLE a blurry 252-tall image (Bug 4). 0 = native (recommended).
@@ -31,8 +33,30 @@ def main():
     print(f"extracted {len(frames)} frames; engine={engine}; views=[{min_views},{max_views}]@{rate}/s; "
           f"long_side={cap_long_side or 'native'}")
     recon = make_reconstructor(engine)
-    recon.max_views = max_views  # let the reconstructor consume all sampled views
-    scene = recon.reconstruct(frames, scene_id, d / "scene.ply")
+    # OOM-recovery ladder: if the GPU can't fit this view count (e.g. a long room scan at the
+    # taller 616 crop), free memory and retry with fewer views rather than hard-failing the
+    # upload. Phone uploads hit this path with defaults, so it must degrade gracefully.
+    ladder = [max_views] + [v for v in (16, 12, 10, 8) if v < max_views]
+    scene, last_err = None, None
+    for i, v in enumerate(ladder):
+        recon.max_views = v
+        try:
+            scene = recon.reconstruct(frames, scene_id, d / "scene.ply")
+            if i:
+                print(f"(recovered at {v} views after OOM)")
+            break
+        except RuntimeError as e:
+            if "out of memory" not in str(e).lower():
+                raise
+            last_err = e
+            print(f"OOM at {v} views — freeing GPU and retrying with fewer views")
+            try:
+                import torch
+                torch.cuda.empty_cache()
+            except Exception:  # noqa: BLE001
+                pass
+    if scene is None:
+        raise last_err
     print(f"wrote {d / 'scene.ply'} with {scene.source_meta['n_gaussians']} gaussians")
 
     # Mobile-friendly prune: phones can't load multi-million-splat PLYs. Emit a capped
