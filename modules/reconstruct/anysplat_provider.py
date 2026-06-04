@@ -104,10 +104,16 @@ class AnySplatReconstructor:
         """Return (gaussians, pred_context_pose) from AnySplat for the given images."""
         model = self._load()
         import torch
-        from src.utils.image import process_image
+        # License-clean preprocessor (replaces AnySplat's CC-BY-NC src.utils.image.process_image).
+        # CROP_LONG_CAP keeps more of the long side than the original 448² square crop: 616 recovers
+        # ~38% vertical FOV on portrait phone frames -> +1.32x gaussian density on rooms and a clean
+        # PSNR/SSIM/LPIPS win on objects (experiments/RESULTS.md rank-2). 784 OOMs at 16 views; 448
+        # reproduces the old square behavior. Default 616 (validated safe on the 4070 Ti).
+        from modules.reconstruct.preprocess import process_image
+        long_cap = int(os.environ.get("CROP_LONG_CAP", "616"))
 
-        imgs = [process_image(str(p)) for p in image_paths]
-        images = torch.stack(imgs, dim=0).unsqueeze(0).to(self.device)  # [1,K,3,448,448]
+        imgs = [process_image(str(p), long_cap=long_cap) for p in image_paths]
+        images = torch.stack(imgs, dim=0).unsqueeze(0).to(self.device)  # [1,K,3,448,W]
         with torch.no_grad():
             gaussians, pred_context_pose = model.inference((images + 1) * 0.5)
         torch.cuda.empty_cache()

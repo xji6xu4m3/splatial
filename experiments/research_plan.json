@@ -1,0 +1,112 @@
+{
+  "summary": "Research AnySplat paper + industry 3DGS optimizations to improve room density and remove object floaters; output a ranked experiment plan",
+  "agentCount": 6,
+  "logs": [
+    "Collected 37 candidate levers from 5/5 research agents"
+  ],
+  "result": {
+    "researchAgents": 5,
+    "leverCount": 37,
+    "plan": {
+      "baseline_gaps": [
+        "NO photometric post-optimization stage is wired up at all. external_AnySplat/src/post_opt/simple_trainer.py exists but our pipeline (cli.py -> anysplat_provider.reconstruct -> prune_ply) never calls it. This is the single biggest gap vs the paper/industry: AnySplat's own README ships post-opt and the paper reports it as the path to competitive PSNR; raw feed-forward is the floor, not the ceiling. Approved but unbuilt.",
+        "Predicted camera poses are THROWN AWAY. anysplat_provider._run_anysplat returns pred_context_pose but reconstruct() only uses extrinsics for the up-vector then discards them. Without persisted extrinsics+intrinsics there is no way to (a) compute held-out-view PSNR/SSIM/LPIPS (the agreed metric — currently NOT computed anywhere), (b) run gsplat post-opt, or (c) do projection-based floater pruning. Persisting poses is a hard prerequisite for half the plan.",
+        "Portrait FOV is being center-cropped away. process_image (src/utils/image.py) resizes short side to 448 and HARD center-crops to 448x448 square. For 1080x1920 portrait phone video that discards ~57% of the vertical extent (448/796 kept). The model was trained on aspect 0.5-1.0 and the ViT backbone accepts any H,W divisible by 14, so we are needlessly starving room1 of surface coverage and pixel-gaussian count.",
+        "Floaters are never removed by geometry. optimize_ply.select_indices does a UNIFORM RANDOM subsample to 1.1M after dropping alpha<0.004. It deliberately preserves low-opacity background (good for room walls) but means pet1's stringy spray survives untouched — there is no SOR / DBSCAN / scale-needle / confidence gate anywhere. The viewer cap is the only filter and it is opacity-blind.",
+        "AnySplat's own in-model cleanup knobs are all OFF. render_conf=False, opacity_conf=False, gs_prune=False, conf_threshold=0.1, opacity_threshold=0.001, voxel_size as-shipped. These are free, zero-VRAM levers (encoder cfg, anysplat.py:96-114) we never touch — the cheapest floater/density controls in the system are disabled.",
+        "No held-out-view evaluation harness. The agreed metric is held-out PSNR/SSIM/LPIPS but nothing in modules/reconstruct computes it. Every experiment below needs a leave-N-views-out eval to be falsifiable; without it we are tuning on vibes/screenshots.",
+        "Non-commercial license contamination: process_image is imported from src.utils.image which carries a CC-BY-NC-SA 4.0 (NAVER/DUSt3R) header. AnySplat weights are MIT; this helper is the only non-commercial code path in reconstruct and it sits exactly where the crop fix lives.",
+        "Missing deps for the heavy path: open3d, gsplat, and lpips are NOT installed in .venv (only plyfile is). DBSCAN/SOR, gsplat post-opt, and LPIPS eval all need a pip install first."
+      ],
+      "quick_wins": [
+        "Persist poses FIRST (prerequisite, ~20 LOC): in anysplat_provider._export_ply path, np.savez(scene_dir/'cameras.npz', extrinsic=pose['extrinsic'][0].cpu(), intrinsic=pose['intrinsic'][0].cpu()). Unlocks held-out eval + post-opt + projection pruning. Do this before anything else.",
+        "Build a held-out-view eval harness (rank-0 prerequisite): hold out 2-3 of the sampled frames, render the AnySplat gaussians from their saved extrinsics/intrinsics via gsplat.rasterization, compute PSNR/SSIM/LPIPS vs the 448-crop GT. Every other experiment is scored against this. Without it nothing below is falsifiable.",
+        "Non-square taller crop for portrait (room density): replace process_image's 448x448 crop with resize-short-to-448 + crop-long to nearest x14 capped at 616 (448x616). Recovers ~38% vertical FOV and ~1.37x pixel-gaussians. Do it in a NEW pure-torchvision helper in modules/reconstruct to also drop the CC-BY-NC dependency. One edit, two wins.",
+        "Flip the free in-model cleanup flags for pet1: model.encoder.cfg.conf_threshold=0.2, render_conf=True (and try opacity_conf=True). Zero VRAM, attacks low-confidence edge spray at the source. Keep OFF for room1 (would eat real walls).",
+        "Scale-needle + SOR post-pass in optimize_ply.py (pet1): before the uniform subsample, drop gaussians with anisotropy max(s)/min(s)>10 or max(s)>99th-percentile, then open3d remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0). Pure numpy + open3d, ~30 LOC, deterministic. Biggest cheap floater win.",
+        "Raise MAX_VIEWS 16->20 for room1 (env knob only, already plumbed in cli.py L19). Free coverage on the steep part of the PSNR curve (paper 16 views=21.85). Keep pet1 at 12-16 (small scene) and spend its budget on the crop instead.",
+        "Per-scene min_alpha + a --mode flag in optimize_ply: room mode keeps min_alpha=0.004 (preserve walls), object mode raises to ~0.03-0.05 and enables DBSCAN-keep-largest. Turns the existing pruner into a real floater remover for objects with one branch."
+      ],
+      "ranked_experiments": [
+        {
+          "rank": 1,
+          "title": "Persist poses + held-out-view PSNR/SSIM/LPIPS eval harness (prerequisite for everything)",
+          "targets": "general_fidelity",
+          "exact_change": "(A) In anysplat_provider.reconstruct, after inference save np.savez(out_ply.parent/'cameras.npz', extrinsic=ext[0].cpu().numpy(), intrinsic=intr[0].cpu().numpy(), image_paths=[str(p) for p in capped]). extrinsic is c2w [V,4,4] OpenCV, intrinsic is normalized [V,3,3]. (B) New modules/reconstruct/eval.py: hold out indices [len//4, len//2, 3*len//4] from the sampled frames, reconstruct from the REMAINING views, then render the held-out cameras from the saved poses with gsplat.rasterization(means, quats, exp(scales), sigmoid(opacities), sh0, viewmats=inv(c2w), Ks=intrinsic*448, width=448, height=448, sh_degree=0) and compute PSNR/SSIM (skimage) + LPIPS(net='alex'). Print a 3-line metric table.",
+          "how_to_implement": "Edit /home/liylo/Desktop/AR/modules/reconstruct/anysplat_provider.py reconstruct() to savez cameras.npz. Add /home/liylo/Desktop/AR/modules/reconstruct/eval.py with eval_heldout(scene_dir, holdout_idx). pip install gsplat lpips scikit-image into .venv (currently missing). Reuse the exp/sigmoid/Ks-denormalize conventions documented in anysplat_provider._export_ply (opacity already logit in PLY) and decoder_splatting_cuda.py:66-79 (c2w + normalized intrinsics).",
+          "success_metric": "Harness prints PSNR/SSIM/LPIPS for 3 held-out room1 views and 3 pet1 views, reproducible across runs (fixed holdout indices). These baseline numbers become the control every later experiment is diffed against. Sanity: held-out PSNR should land ~18-22 for room1 raw feed-forward.",
+          "vram_risk": "low",
+          "expected_gain": "No direct quality gain — this is the measurement spine. Unblocks scoring of all 7 following experiments and is a hard dependency for ranks 2, 6, 7.",
+          "confidence": 0.9
+        },
+        {
+          "rank": 2,
+          "title": "Non-square portrait crop (recover vertical FOV) + drop the CC-BY-NC preprocessor",
+          "targets": "room_density",
+          "exact_change": "Write process_image_v2(path, short=448, long_cap=616) in modules/reconstruct: PIL.open -> exif_transpose -> convert RGB -> resize SHORT side to 448 (keep aspect) -> center-crop the LONG side to min(long_side, 616) rounded DOWN to nearest multiple of 14 -> ToTensor()*2-1. For 1080x1920 portrait: 448x796 -> crop to 448x616 (616=14*44). Build images tensor [1,K,3,448,616] and call model.inference((images+1)*0.5) unchanged (ViT patch=14 accepts any H,W%14==0). Replace the `from src.utils.image import process_image` import in anysplat_provider._run_anysplat with this local helper. Pad views to a common H,W (they will already match). Fallback to 448x560 (=14*40) if OOM at the higher view count.",
+          "how_to_implement": "New helper in /home/liylo/Desktop/AR/modules/reconstruct/preprocess.py; edit anysplat_provider.py:107-110 to use it. Keep CAPTURE_LONG_SIDE=0 (native) so the resize downsamples sharp pixels (cli.py:23 comment Bug 4). Gate behind env CROP_LONG_CAP (default 448=current behavior, set 616 for the experiment) for an A/B.",
+          "success_metric": "room1 held-out PSNR up vs rank-1 baseline (expect +0.5 to +1.5 dB); visually walls/floor fill in, fewer black holes in the viewer. n_gaussians rises ~1.3x. Confirm no OOM at MAX_VIEWS=16, 448x616 on the 4070Ti (watch nvidia-smi peak <11.5GB).",
+          "vram_risk": "med",
+          "expected_gain": "+0.5-1.5 dB room1 PSNR, ~1.37x pixel-gaussian density, ~38% more vertical scene captured per frame. Also removes the only non-commercial file in reconstruct (license win).",
+          "confidence": 0.78
+        },
+        {
+          "rank": 3,
+          "title": "Scale-needle + SOR geometric floater cleanup in optimize_ply (pet1)",
+          "targets": "object_floaters",
+          "exact_change": "In optimize_ply.py add clean_floaters(means, scales_log, opacity_logit, mode): for mode=='object' compute s=exp(scales_log); drop where max(s,axis=1) > np.percentile(max_s,99) OR max(s)/min(s) > 10 (needles); then open3d PointCloud(means).remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0) and keep the inlier indices; for mode=='room' SKIP DBSCAN/needle and only apply gentle SOR(std_ratio=3.0). Apply BEFORE select_indices' uniform subsample. Add --mode {object,room} to main() and pass it from cli.py based on an env SCENE_MODE.",
+          "how_to_implement": "Edit /home/liylo/Desktop/AR/modules/reconstruct/optimize_ply.py (add clean_floaters, wire into prune_ply); edit cli.py:40-47 to read SCENE_MODE and pass mode. pip install open3d into .venv (missing). Read scale_0..2/rot from the PLY vertex arrays already loaded in prune_ply.",
+          "success_metric": "pet1 held-out PSNR/LPIPS improves or holds while the stringy background visibly disappears in the viewer (before/after screenshot). Gaussian count drops 30-60% on pet1. room1 mode must NOT lose wall coverage (PSNR within noise of rank-2).",
+          "vram_risk": "low",
+          "expected_gain": "Removes the bulk of pet1 spray in one deterministic pass; better LPIPS on object held-out views; 30-60% size reduction for object scans. Lowest-risk, highest-leverage floater lever.",
+          "confidence": 0.82
+        },
+        {
+          "rank": 4,
+          "title": "Enable AnySplat in-model confidence + opacity gates for object scans (pet1)",
+          "targets": "object_floaters",
+          "exact_change": "Before inference, when SCENE_MODE=object: m=self._load(); m.encoder.cfg.render_conf=True; m.encoder.cfg.conf_threshold=0.2; (try 0.15/0.25/0.3); optionally m.encoder.cfg.opacity_conf=True. Also set m.encoder.cfg.gs_prune=True; m.encoder.cfg.opacity_threshold=0.01; m.encoder.cfg.gs_keep_ratio=0.9 (gs_prune block only runs when batch==1, which is our case). If cfg is a frozen dataclass, set via object.__setattr__ or also mirror m.encoder.<attr>. Leave ALL of these at defaults for room1 (gates would erase real low-confidence walls).",
+          "how_to_implement": "Edit /home/liylo/Desktop/AR/modules/reconstruct/anysplat_provider.py _load()/_run_anysplat to apply gates when an object flag is set. Flags verified present at external_AnySplat/src/model/encoder/anysplat.py:96-114; conf logic :435-441,:494-500; prune :505-530.",
+          "success_metric": "pet1: fewer floaters at the SOURCE (lower raw n_gaussians, cleaner silhouette) with held-out subject PSNR unchanged; complements rank-3 (gates remove what geometry-SOR would otherwise have to). Sweep conf_threshold and pick the highest value that doesn't dent subject PSNR.",
+          "vram_risk": "low",
+          "expected_gain": "Attacks low-confidence edge spray before it becomes gaussians; near-zero cost. Stacks with rank-3 so the SOR pass has less to clean. Modest standalone, strong combined.",
+          "confidence": 0.7
+        },
+        {
+          "rank": 5,
+          "title": "Raise room1 view count to 20 + per-scene view/resolution budget",
+          "targets": "room_density",
+          "exact_change": "For room1 set MAX_VIEWS=20 (cli.py:19 already reads env; keep 448x616 from rank-2 OR drop to 448x560 if VRAM-tight — trade resolution for views). For pet1 keep MAX_VIEWS=14 and spend budget on the taller crop instead (small scene saturates early). Do NOT exceed 24 (OOM). Keep the blur-aware sharpest-per-window selection as-is.",
+          "how_to_implement": "Pure env-knob experiment via cli.py (MAX_VIEWS, MIN_VIEWS). No code change. Run room1 at {16,20} x {448x616, 448x560} and read the rank-1 eval. Monitor nvidia-smi peak.",
+          "success_metric": "room1 held-out PSNR monotonically improves 16->20 views (paper: 16 views ~21.85, gains diminish past ~24). Pick the (views,res) pair with best PSNR that stays <11.5GB peak. If 20@448x616 OOMs, 20@448x560 or 16@448x616 is the fallback.",
+          "vram_risk": "med",
+          "expected_gain": "+0.3-1.0 dB room1 from extra coverage of fast-pan regions; finds the VRAM-optimal views/res operating point. Cheap (no code).",
+          "confidence": 0.7
+        },
+        {
+          "rank": 6,
+          "title": "gsplat photometric post-opt on the hero scenes — DefaultStrategy(room1) / MCMCStrategy(pet1)",
+          "targets": "both",
+          "exact_change": "Implement modules/reconstruct/refine.py:refine(in_ply, cameras.npz, out_ply, steps, mode). LOAD PLY into nn.Parameters with NO inverse-activation (PLY stores raw): means=xyz; quats=stack(rot_0..3) wxyz unnormalized; scales=scale_0..2 (log); opacities=opacity (logit, per _export_ply); sh0=f_dc_0..2 -> [N,1,3]. POSES: viewmats=inv(c2w from cameras.npz); Ks=intrinsic.clone(); Ks[:,0]*=W; Ks[:,1]*=H. GT = the SAME crops our preprocessor produced. Per step render ONE random view: rasterization(means, quats, exp(scales), sigmoid(opacities), sh0, viewmats, Ks, width=W,height=H, sh_degree=0, packed=True, absgrad=True, rasterize_mode='antialiased'); loss=lerp(l1, 1-ssim, 0.2). Adam groups: means 1.6e-4*scene_scale, scales 5e-3, quats 1e-3, opacity 5e-2, sh0 2.5e-3; means ExponentialLR gamma=0.01**(1/steps). scene_scale from cam centers. room1: DefaultStrategy(grow_grad2d=2e-4, prune_opa=0.005, refine_start_iter=100, refine_stop_iter=0.85*steps, refine_every=100) to clone/split-fill holes. pet1: MCMCStrategy(cap_max=1_100_000, min_opacity=0.01, noise_lr=5e5, refine_start_iter=100) + loss += 0.01*sigmoid(op).mean()+0.01*exp(scales).mean() to dissolve spray. steps=1000 default (sweet spot), 3000 for one baked hero. Re-export raw params back to PLY. CRITICAL: cap sh_degree at 0 (trainer default is 4 — would bloat to SH and mismatch the SH0 viewer). Run refine on the FULL ~2.3M set, then prune_ply to 1.1M as the LAST step.",
+          "how_to_implement": "Port the loss/LR/strategy conventions from /home/liylo/Desktop/AR/external_AnySplat/src/post_opt/simple_trainer.py (Config max_steps=3000, ssim_lambda=0.2, init_opa=0.1, prune<0.01 at :392; but set sh_degree=0). New /home/liylo/Desktop/AR/modules/reconstruct/refine.py; call it from cli.py BEFORE prune_ply when REFINE_STEPS>0. Requires cameras.npz from rank-1. pip install gsplat (missing). VRAM tactics: packed=True, one view/step, fp32, empty_cache after AnySplat unload; if DefaultStrategy grows past ~1.8M switch room1 to MCMC cap_max=1.3M.",
+          "success_metric": "Held-out PSNR jumps +1.5 to +4 dB over rank-1 baseline on both scenes after 1-3k steps; room1 holes fill (DefaultStrategy clone), pet1 spray dissolves (MCMC opacity/scale L1). Validate 500/1000/3000 tiers — expect 1000 to capture ~80% of the 3000 gain at ~1/3 the time (~1-2 min/scene on 4070Ti).",
+          "vram_risk": "med",
+          "expected_gain": "Biggest single quality jump and the main paper/industry gap we are missing. +1.5-4 dB PSNR, fills room1 surfaces via densification, removes pet1 floaters via opacity-reset/MCMC. Apache-2.0 (commercial-safe). 1-3k steps fits the pre-baked demo.",
+          "confidence": 0.8
+        },
+        {
+          "rank": 7,
+          "title": "Projection/connectivity floater whitelist (pet1 finishing pass) — only if rank-3/4/6 leave residue",
+          "targets": "object_floaters",
+          "exact_change": "Option A (connectivity, no masks): open3d cluster_dbscan(eps=0.02*bbox_diag, min_points=20) on means, keep ONLY the largest cluster (the plush), drop noise+small clusters. Object scans only — NEVER on rooms (would delete real geometry). Option B (whitelist projection, stronger): rembg new_session('birefnet-general') (MIT — do NOT use default u2net, non-commercial) to get a foreground alpha per input frame; keep RGB for inference (poses depend on content), then project each gaussian mean into all saved views via cameras.npz and DROP any gaussian that lands in background (alpha<0.5) in EVERY view. Implement as clean_floaters mode='object_strict'.",
+          "how_to_implement": "Extend /home/liylo/Desktop/AR/modules/reconstruct/optimize_ply.py clean_floaters with an 'object_strict' branch (DBSCAN-keep-largest). For Option B add projection using cameras.npz from rank-1 + rembg birefnet. pip install open3d (and rembg for B). Run AFTER rank-6 refine, BEFORE final prune.",
+          "success_metric": "pet1 background is essentially clean in the viewer (largest-cluster keep typically removes 50-80% of gaussians on object scans); held-out subject PSNR unchanged. Only pursue if ranks 3/4/6 leave visible disconnected spray. Verify the largest cluster IS the plush (not a wall fragment) before baking.",
+          "vram_risk": "low",
+          "expected_gain": "Near-total removal of disconnected pet1 spray as a finishing pass. Flag: rembg default u2net weights are non-commercial — use BiRefNet (MIT) or SAM (Apache) if going the projection route; DBSCAN path has no license risk.",
+          "confidence": 0.72
+        }
+      ],
+      "notes": "Grounded against real code, not just the lever JSON. Verified facts that shape the ranking: (1) NO post-opt is wired — external_AnySplat/src/post_opt/simple_trainer.py exists but cli.py never calls it; (2) poses are DISCARDED — anysplat_provider.reconstruct() uses pred_context_pose only for the up-vector then drops it, so persisting cameras.npz is a hard prerequisite for eval AND post-opt AND projection pruning (hence it is rank-1); (3) NO held-out eval exists anywhere despite PSNR/SSIM/LPIPS being the agreed metric — rank-1 builds it; (4) deps gsplat/open3d/lpips are NOT in .venv (only plyfile) — each heavy experiment needs a pip install; (5) process_image (src/utils/image.py:163-185) hard center-crops 448x448 and carries a CC-BY-NC-SA 4.0 header — the crop fix and the license fix are the same edit; (6) all encoder cfg flags (render_conf/conf_threshold/opacity_conf/gs_prune/opacity_threshold/voxel_size) confirmed at anysplat.py:96-114; (7) optimize_ply does a deliberate uniform subsample that preserves background (good for rooms, bad for pet1) — adding a per-scene --mode is the clean fix. Dedup: I merged the 5 'non-square crop' variants into rank-2 (capped 448x616, divisible by 14, with the license-clean reimplementation folded in); merged the ~6 floater levers into rank-3 (scale+SOR), rank-4 (in-model gates), rank-7 (DBSCAN/projection finishing); merged all gsplat post-opt variants into rank-6 with per-scene strategy (Default for density, MCMC for floaters). I deliberately DROPPED as not-worth-it-now: multi-pass chunked/windowed inference + Umeyama merge (high effort, 0.6 conf, needs anchor-view alignment — revisit only if single-pass coverage is still holey after ranks 2+5+6); LightGaussian contribution pruning (high effort, rank-6 MCMC achieves the same floater removal); LPIPS-in-loss tail (rank-6 L1+0.2 SSIM already moves LPIPS; add only if LPIPS specifically lags); voxel_size tuning (low 0.55 conf, redundant once densification/SOR are in). Capture-side levers (shoot landscape, slow orbit, lock AE/AF, isolated background) are the single highest-confidence improvements in the whole set (0.85-0.9) but require RE-SHOOTING room1/pet1, so they are out of scope for a 'fix the pipeline on existing footage' plan — flag them to the user as a parallel track: a landscape re-shoot of room1 with 70-80%% overlap would likely beat ranks 2+5 combined for less engineering. Commercial flags: process_image CC-BY-NC (fixed in rank-2), rembg u2net non-commercial (rank-7 — use BiRefNet/SAM), lpips alexnet weights research-licensed (eval-only, fine for demo, flag for ship). Execution order for an engineer starting now: pip install gsplat open3d lpips scikit-image -> rank-1 (poses+eval) -> rank-2 (crop) -> ranks 3/4 (cheap pet1 floaters) -> rank-5 (view sweep) -> rank-6 (post-opt, the big one) -> rank-7 only if residue remains."
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# reconstructed PLYs / large artifacts stay out of git; keep the docs + harness
+*.ply
+*.png
+*.jpeg
