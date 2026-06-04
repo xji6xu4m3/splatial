@@ -10,6 +10,7 @@ It shells out to the `anysplat` conda env for the actual reconstruction, and the
 viewer is the separately-running Vite dev server on :5173.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -80,17 +81,44 @@ poll();
 </script></body></html>"""
 
 
+def _subprocess_env() -> dict:
+    """Environment for the conda subprocess, with THIS server's virtualenv stripped out.
+
+    The server itself runs inside .venv (it needs Flask), but reconstruction shells out to
+    the separate `anysplat` conda env. If VIRTUAL_ENV and the venv's PATH entry leak into
+    `conda run`, the inner `python` resolves to .venv/bin/python (which has no torch) instead
+    of the anysplat interpreter, and recon dies with ModuleNotFoundError. Strip them so conda
+    selects its own python regardless of how this server was launched.
+    """
+    env = os.environ.copy()
+    venv = env.pop("VIRTUAL_ENV", None)
+    env.pop("PYTHONHOME", None)
+    if venv:
+        env["PATH"] = os.pathsep.join(
+            p for p in env.get("PATH", "").split(os.pathsep) if p and not p.startswith(venv)
+        )
+    return env
+
+
 def _reconstruct(video: str, scene: str):
     try:
-        subprocess.run(
+        proc = subprocess.run(
             [CONDA, "run", "-n", "anysplat", "--no-capture-output", "env",
              f"ANYSPLAT_ROOT={ROOT}/external_AnySplat", "RECON_ENGINE=anysplat",
              "python", "-m", "modules.reconstruct.cli", video, "scenes", scene],
             cwd=str(ROOT), check=True, capture_output=True, text=True, timeout=900,
+            env=_subprocess_env(),
         )
         STATUS[scene] = "done"
     except subprocess.CalledProcessError as e:
-        STATUS[scene] = f"error: {(e.stderr or e.stdout or 'failed')[-200:]}"
+        # Persist the FULL stderr/stdout so real failures (CUDA OOM, import errors) are
+        # debuggable — the status string only shows the tail, which is often just conda's
+        # generic wrapper message. Keep more of it in STATUS too.
+        log = (SCENES / scene)
+        log.mkdir(parents=True, exist_ok=True)
+        (log / "recon.log").write_text((e.stdout or "") + "\n----- STDERR -----\n" + (e.stderr or ""))
+        detail = (e.stderr or e.stdout or "failed").strip()
+        STATUS[scene] = f"error: {detail[-600:]}"
     except Exception as e:  # noqa: BLE001
         STATUS[scene] = f"error: {e}"
 
