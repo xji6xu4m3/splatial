@@ -33,7 +33,28 @@ the only non-commercial (CC-BY-NC) file from the reconstruct path.
    Needs: persist poses (cameras.npz) + refine.py (gsplat trainer) + eval_ply.py (PLY-render eval).
 7. ⏳ DBSCAN/segmentation finishing — pet1 desk removal (only if the object should be isolated)
 
-### Open decision
+## Rank-6 post-opt — OOM FIXED, but novel-view overfit (2026-06-04)
+Re-investigated the post-opt the user remembered OOMing.
+- **OOM is solved**: `tools/postopt.sh` fits **17 init views @ 448², peak 9.9 GB** on the 12 GB
+  card (the `no_grad` init patch + `expandable_segments`). The old "~8 views OOMs" note was stale.
+- **Metric win**: room1 trainer-held-out **PSNR 12.49→14.28 (+1.79 dB)**, SSIM +0.02, LPIPS better
+  (1000 steps, SH0). +2.0 dB at SH1.
+- **Two viewer-convention bugs found & fixed** in the refined PLY → viewer path:
+  1. **SH degree**: postopt.sh trained at SH1; viewer renders SH0 (reads only f_dc) → washed out.
+     Fixed: `--sh-degree 0`.
+  2. **Opacity**: gsplat `--save-ply` writes **linear [0,1]**; viewer applies sigmoid (expects
+     **logit**) → everything ≥0.5 alpha → fog. Fix: convert opacity linear→logit before the viewer.
+- **Remaining issue (the "needle" problem)**: even with conventions fixed, the refined scene shows
+  **needle-streak floaters + rainbow colour noise** from free-orbit angles outside the 17-view
+  capture trajectory. Detail IS captured (window blinds, wall texture sharpen) but post-opt
+  overfits sparse handheld views → looks worse than feed-forward from the viewer's far default
+  camera. `scenes/room1po` holds the refined result for inspection.
+- **Options to make post-opt win in free-orbit**: (a) needle cleanup on post-opt output (large
+  AND high-anisotropy + SOR — distinct from the rejected feed-forward gate); (b) MCMC strategy +
+  opacity/scale regularization; (c) denser capture (more overlap); (d) constrain viewer default
+  camera near the trajectory. Feed-forward baseline currently looks better for free orbit.
+
+### Open decision (object)
 pet1's remaining "background" is the **desk surface** the toy sits on — real geometry, not
 floaters. Keeping it = object-in-context; removing it (segmentation/DBSCAN) = isolated turntable
 object. Affects rank-7 and what "clean" means. **Ask user.**
