@@ -69,7 +69,7 @@ cd web && npm install && npm run dev                 # dev viewer at http://loca
 
 Reconstruct and view from a phone with **one command** on any Linux machine with an NVIDIA GPU — capture page, viewer, and reconstruction all served from one container on one port. The phone is just the camera + screen; all the work runs on the GPU host.
 
-### For the operator (HR) — two steps
+### For the operator — two steps
 
 **One-time host setup:** install [Docker](https://docs.docker.com/engine/install/), the NVIDIA driver, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). (Needs a Linux box with an NVIDIA GPU, driver ≥ 525.)
 
@@ -84,13 +84,13 @@ That's it. The view cap **auto-scales to the GPU's VRAM** (≤12 GB → 16 views
 
 ### Publishing the image (maintainer, one-time)
 
-HR's `docker run` works only after the image is published to GHCR. Tag a release to trigger the build, then make the package public so no login is needed:
+The `docker run` above works only after the image is published to GHCR. Tag a release to trigger the build, then make the package public so no login is needed:
 ```bash
 git tag v0.1.0 && git push origin v0.1.0      # CI builds + pushes ghcr.io/xji6xu4m3/splatial
 ```
-Then in the GitHub repo → **Packages** → `splatial` → set visibility to **Public** (one time). After that, HR's two steps above just work.
+Then in the GitHub repo → **Packages** → `splatial` → set visibility to **Public** (one time). After that, the two operator steps above just work.
 
-> No GPU box for HR? Run the same `docker run` on any NVIDIA-GPU machine (e.g. the demo rig) and point HR's phone at *that* host's `:8080` — same two steps.
+> No local GPU box? Run the same `docker run` on any NVIDIA-GPU machine (e.g. the demo rig) and point the phone at *that* host's `:8080` — same two steps.
 
 ## Repository layout
 
