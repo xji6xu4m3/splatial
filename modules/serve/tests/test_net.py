@@ -1,5 +1,44 @@
 import re
+import socket
+
+import pytest
+
 from modules.serve import net
+
+
+def test_find_free_port_returns_preferred_when_free():
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("0.0.0.0", 0))
+    free = probe.getsockname()[1]
+    probe.close()
+    assert net.find_free_port(free) == free
+
+
+def test_find_free_port_skips_busy():
+    busy_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    busy_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    busy_sock.bind(("0.0.0.0", 0))
+    busy_sock.listen()
+    busy = busy_sock.getsockname()[1]
+    try:
+        got = net.find_free_port(busy, attempts=8)
+        assert got != busy and busy < got <= busy + 7
+    finally:
+        busy_sock.close()
+
+
+def test_find_free_port_raises_when_none_free():
+    busy_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    busy_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    busy_sock.bind(("0.0.0.0", 0))
+    busy_sock.listen()
+    busy = busy_sock.getsockname()[1]
+    try:
+        with pytest.raises(OSError):
+            net.find_free_port(busy, attempts=1)  # only the busy port in range
+    finally:
+        busy_sock.close()
+
 
 def test_lan_ip_returns_dotted_quad():
     ip = net.lan_ip()

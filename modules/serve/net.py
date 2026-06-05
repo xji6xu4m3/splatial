@@ -4,9 +4,32 @@ The phone reaches the container at the host's LAN IP (we run with --network host
 detect it via a UDP socket to a public address (no packets actually sent) and fall back to
 loopback if there's no network.
 """
+import errno
 import socket
 
 import qrcode
+
+
+def find_free_port(preferred: int, attempts: int = 11) -> int:
+    """Return `preferred` if it can be bound, else the next free port in
+    [preferred, preferred+attempts). Raises OSError if none are free.
+
+    Lets the server fall back gracefully when the default port is already taken,
+    instead of dying with a raw "Address already in use" traceback."""
+    last = None
+    for port in range(preferred, preferred + attempts):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # match the dev server's bind
+        try:
+            s.bind(("0.0.0.0", port))
+            return port
+        except OSError as e:
+            last = e
+            if e.errno not in (errno.EADDRINUSE, errno.EACCES):
+                raise
+        finally:
+            s.close()
+    raise OSError(f"no free port in {preferred}-{preferred + attempts - 1}") from last
 
 
 def lan_ip() -> str:

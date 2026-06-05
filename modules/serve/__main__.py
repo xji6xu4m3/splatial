@@ -5,7 +5,7 @@ import os
 
 from modules.serve.app import create_app
 from modules.serve.gpu import default_max_views
-from modules.serve.net import startup_banner
+from modules.serve.net import find_free_port, startup_banner
 
 
 def _detect_total_vram() -> int | None:
@@ -31,7 +31,18 @@ def main() -> None:
     # MIN_VIEWS at the CLI's hard-coded 16.
     os.environ.setdefault("MIN_VIEWS", os.environ["MAX_VIEWS"])
 
-    port = int(os.environ.get("PORT", "8080"))
+    requested = int(os.environ.get("PORT", "8080"))
+    try:
+        port = find_free_port(requested)
+    except OSError:
+        raise SystemExit(
+            f"ERROR: port {requested} (and the next few) are all in use. Free it "
+            f"(`lsof -i :{requested}` then stop that process) or set a different PORT."
+        )
+    if port != requested:
+        print(f"Port {requested} is in use — serving on {port} instead "
+              f"(the URL/QR below already reflect it).")
+
     print(startup_banner(port))
     app = create_app()
     app.run(host="0.0.0.0", port=port, threaded=True)
