@@ -6,7 +6,7 @@ test('viewer actually renders the splat scene', async ({ page }) => {
   test.setTimeout(180000)
   const errors = []
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
-  await page.goto('/?scene=pet1')
+  await page.goto('?scene=pet1')   // relative -> resolves under baseURL .../view/
   await page.waitForFunction(() => window.__viewer !== undefined, { timeout: 150000 })
 
   const canvas = page.locator('canvas')

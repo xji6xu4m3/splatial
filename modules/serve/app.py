@@ -6,6 +6,7 @@ is no conda shell-out. COOP/COEP are set so the viewer's gpu-accelerated splat s
 SharedArrayBuffer.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ import threading
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.exceptions import NotFound
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENE_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
@@ -74,18 +76,23 @@ def subprocess_recon_launcher(video: str, scene: str, scenes_root: Path, status:
     Runs as a subprocess so the model's VRAM is freed on process exit. MAX_VIEWS is inherited
     from the parent env (set by __main__ from the detected GPU)."""
     def run():
+        # Stream recon stdout/stderr straight to recon.log on disk. AnySplat can emit hundreds
+        # of MB over a long run; capturing it in memory would risk OOMing the Flask process
+        # alongside the VRAM-heavy reconstruction subprocess.
+        log_dir = scenes_root / scene
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "recon.log"
         try:
-            subprocess.run(
-                [sys.executable, "-m", "modules.reconstruct.cli", video, "scenes", scene],
-                cwd=str(ROOT), check=True, capture_output=True, text=True, timeout=1200,
-            )
+            with open(log_path, "w") as log_fh:
+                subprocess.run(
+                    [sys.executable, "-m", "modules.reconstruct.cli", video, "scenes", scene],
+                    cwd=str(ROOT), check=True, stdout=log_fh, stderr=subprocess.STDOUT,
+                    text=True, timeout=1200,
+                )
             status[scene] = "done"
-        except subprocess.CalledProcessError as e:
-            log = scenes_root / scene
-            log.mkdir(parents=True, exist_ok=True)
-            (log / "recon.log").write_text((e.stdout or "") + "\n--- STDERR ---\n" + (e.stderr or ""))
-            detail = (e.stderr or e.stdout or "failed").strip()
-            status[scene] = f"error: {detail[-600:]}"
+        except subprocess.CalledProcessError:
+            tail = log_path.read_text()[-600:].strip() if log_path.exists() else "failed"
+            status[scene] = f"error: {tail}"
         except Exception as e:  # noqa: BLE001
             status[scene] = f"error: {e}"
 
@@ -102,6 +109,9 @@ def create_app(scenes_root=None, data_root=None, viewer_dist=None, assets_root=N
 
     app = Flask(__name__)
     app.config.update(SCENES=str(scenes_root), DATA=str(data_root), STATUS=status)
+    # Reject oversized uploads up front (a multi-GB 4K clip would otherwise stream fully to
+    # disk before we could refuse it). 2 GB comfortably covers a ~30 s phone capture.
+    app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_BYTES", str(2 * 1024 ** 3)))
 
     @app.after_request
     def _isolation(resp):
@@ -152,10 +162,12 @@ def create_app(scenes_root=None, data_root=None, viewer_dist=None, assets_root=N
 
     @app.get("/view/<path:p>")
     def view_asset(p):
-        full = (viewer_dist / p)
-        if full.is_file():
+        # send_from_directory (safe_join) blocks traversal; fall back to index.html for SPA
+        # routes. Using its 404 rather than a pre-check avoids a file-existence probe oracle.
+        try:
             return send_from_directory(viewer_dist, p)
-        return send_from_directory(viewer_dist, "index.html")  # SPA fallback
+        except NotFound:
+            return send_from_directory(viewer_dist, "index.html")  # SPA fallback
 
     @app.get("/scenes/<path:p>")
     def scene_file(p):
