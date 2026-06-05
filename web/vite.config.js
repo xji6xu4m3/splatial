@@ -18,6 +18,9 @@ const crossOriginIsolation = {
 }
 
 export default defineConfig({
+  // Built assets load from /view/ so they don't collide with the server's /assets/ GLB route.
+  // NOTE for `npm run dev`: the app is now served at http://localhost:5173/view/?scene=<id>
+  // (not bare /). The "← New scan" home link points at / and only resolves under modules/serve.
   base: '/view/',
   plugins: [crossOriginIsolation],
   // host:true binds 0.0.0.0 so a phone on the LAN can reach the dev viewer directly. Without it
