@@ -75,8 +75,9 @@ Run on a **fresh** machine with no Python/Node/GPU-library setup — one `docker
 
 **Step 1 — start the server** (pulls the image the first time, then prints a URL + QR):
 ```bash
-docker run --gpus all --network host -v "$PWD/scenes:/app/scenes" ghcr.io/xji6xu4m3/splatial
+docker run --gpus all --network host -v "$PWD/scenes:/app/scenes" ghcr.io/xji6xu4m3/splatial:v0.1.1
 ```
+`v0.1.1` is the current validated release (tested end-to-end on an RTX 4070 Ti); `:latest` tracks the newest build.
 
 **Step 2 — on your phone** (same Wi-Fi): scan the printed QR or open `http://<host-ip>:8080`, record a room with your Camera app, upload it → it reconstructs (~1–2 min) → tap to view in 3D.
 
@@ -84,12 +85,12 @@ That's it. The view cap **auto-scales to the GPU's VRAM** (≤12 GB → 16 views
 
 **Step 3 (optional) — remove everything**, no trace on the host:
 ```bash
-docker rmi ghcr.io/xji6xu4m3/splatial:latest && docker system prune -af
+docker rmi ghcr.io/xji6xu4m3/splatial:v0.1.1 && docker system prune -af
 ```
 
 ### Publishing the image (maintainer)
 
-The image is published from CI on a version tag and lives at `ghcr.io/xji6xu4m3/splatial` (`:latest` + the tag). To cut a new build:
+The image is published from CI on a version tag and lives at `ghcr.io/xji6xu4m3/splatial` (`:latest` + the tag; current release **`v0.1.1`**). To cut a new build:
 ```bash
 git tag vX.Y.Z && git push origin vX.Y.Z       # CI builds + pushes the image
 ```
