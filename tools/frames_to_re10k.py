@@ -55,9 +55,13 @@ def main() -> None:
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=95)
         images.append(torch.frombuffer(bytearray(buf.getvalue()), dtype=torch.uint8).clone())
-        # dummy normalized intrinsics (fx,fy ~ moderate fov) + identity w2c (rot=I, t=0)
-        w2c = np.eye(4, dtype=np.float32)[:3].reshape(-1)          # 12 values
-        cameras.append([0.7, 0.7, 0.5, 0.5, 0.0, 0.0, *w2c.tolist()])
+        # dummy normalized intrinsics (fx,fy ~ moderate fov) + a NON-DEGENERATE w2c: spread cameras
+        # along x (t_x = -0.1*i) so the loader's pose-norm scale (max pairwise camera distance) is > 0.
+        # The pose-free model ignores these for geometry — they only keep the eval plumbing well-conditioned
+        # (all-identity poses -> scale 0 -> jaxtyping TypeCheckError in compute_pose_norm_scale).
+        w2c = np.eye(4, dtype=np.float32)
+        w2c[0, 3] = -0.1 * i
+        cameras.append([0.7, 0.7, 0.5, 0.5, 0.0, 0.0, *w2c[:3].reshape(-1).tolist()])
 
     cameras_t = torch.tensor(cameras, dtype=torch.float32)         # [N,18]
     chunk = [{"key": args.key, "cameras": cameras_t, "images": images}]
