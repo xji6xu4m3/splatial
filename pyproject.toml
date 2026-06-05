@@ -10,7 +10,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-serve = ["flask>=3.0"]
+serve = ["flask>=3.0", "qrcode>=7.4"]
 
 [tool.setuptools.packages.find]
 include = ["modules*"]
