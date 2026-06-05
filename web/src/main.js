@@ -12,7 +12,7 @@ const sceneId = /^[a-zA-Z0-9_-]+$/.test(_rawScene) ? _rawScene : 'room1'
 // Persistent "New scan" button -> back to the capture page (always available).
 const home = document.createElement('a')
 home.textContent = '← New scan'
-home.href = `http://${location.hostname}:8090/`
+home.href = '/'
 home.style.cssText = 'position:fixed;top:12px;left:12px;z-index:1000;padding:10px 14px;' +
   'background:rgba(94,53,177,.92);color:#fff;border-radius:8px;font:600 15px system-ui;' +
   'text-decoration:none'

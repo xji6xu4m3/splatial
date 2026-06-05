@@ -55,7 +55,7 @@ export function enableLevel(viewer, sceneId) {
   save.style.cssText = 'padding:9px;border:0;border-radius:8px;background:#2e7d32;color:#fff;font:600 13px system-ui'
   save.addEventListener('click', () => {
     save.textContent = 'saving…'
-    fetch(`http://${location.hostname}:8090/up/${encodeURIComponent(sceneId)}`, {
+    fetch(`/up/${encodeURIComponent(sceneId)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ up: [cam.up.x, cam.up.y, cam.up.z] }),
     }).then(r => r.ok ? (save.textContent = '✓ saved') : r.text().then(t => { save.textContent = '✗ ' + t }))

@@ -55,7 +55,7 @@ pytest                                              # capture + scene_store + re
 python -m modules.reconstruct.cli <video> scenes <id>   # e.g. data/room1.mp4 scenes room1
 
 # Web viewer
-cd web && npm install && npm run dev                # http://localhost:5173/?scene=<id>
+cd web && npm install && npm run dev                # http://localhost:5173/view/?scene=<id>
 cd web && npx playwright test                       # viewer smoke test
 ```
 Test camera is available at `/dev/video0` (the phone camera is the real capture device in the end product). Scene folders and `web/scenes`, `web/assets` symlinks are gitignored.

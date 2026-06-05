@@ -54,7 +54,7 @@ npm run dev      # dev server on http://localhost:5173
 npm run build    # production bundle (compile check)
 ```
 
-Open `http://localhost:5173/?scene=room1` — the viewer reads `scenes/room1/` via the `../scenes` symlink (`web/scenes -> ../scenes`).
+Open `http://localhost:5173/view/?scene=room1` (the build uses base `/view/`) — the viewer reads `scenes/room1/` via the `../scenes` symlink (`web/scenes -> ../scenes`).
 
 ## Smoke Tests
 
