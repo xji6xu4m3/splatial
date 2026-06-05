@@ -1,0 +1,14 @@
+.git
+.venv
+**/node_modules
+web/dist
+scenes
+data
+web/scenes
+web/assets
+web/orbit
+**/__pycache__
+*.pyc
+docs
+experiments
+notebooks
