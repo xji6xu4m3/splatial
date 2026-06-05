@@ -21,12 +21,15 @@ def _detect_total_vram() -> int | None:
         return None
 
 
-def main():
+def main() -> None:
     if "MAX_VIEWS" not in os.environ:
         cap = default_max_views(_detect_total_vram())
         os.environ["MAX_VIEWS"] = str(cap)
-        os.environ.setdefault("MIN_VIEWS", str(cap))
         print(f"GPU view cap (MAX_VIEWS) auto-set to {cap}")
+    # Always pin MIN_VIEWS to MAX_VIEWS (auto-set OR operator-supplied) so the reconstruct CLI
+    # never sees min_views > max_views — e.g. a `-e MAX_VIEWS=8` override must not leave
+    # MIN_VIEWS at the CLI's hard-coded 16.
+    os.environ.setdefault("MIN_VIEWS", os.environ["MAX_VIEWS"])
 
     port = int(os.environ.get("PORT", "8080"))
     print(startup_banner(port))
