@@ -17,6 +17,7 @@ const crossOriginIsolation = {
 }
 
 export default defineConfig({
+  base: '/view/',
   plugins: [crossOriginIsolation],
   // host:true binds 0.0.0.0 so a phone on the LAN can reach the viewer (the capture gallery on
   // :8090 links to http://<this-host>:5173/?scene=...). Without it Vite listens on localhost only
