@@ -1,7 +1,38 @@
 # Reconstruction quality experiments — results log
 
+## ★ VERDICT (2026-06-04): feed-forward is the hero; per-scene post-opt is a dead end on dense scenes
+
+After a cloud-A100 campaign (48-view feed-forward → gsplat `default` post-opt → MCMC → MCMC+opacity-reg),
+held-out PSNR climbed **22.6 → 27.4 → 28.1 → 28.5** — but a **free-orbit screenshot dome**
+(`web/tools/orbit-shots.mjs`, 8 azimuths × 2 elevations) shows the opposite ranking: **feed-forward is
+smooth and coherent from every orbit angle; every post-opt variant is haloed in needle-spray + rainbow
+speckle from every angle** (see `web/orbit/AB_eyelevel.jpg`). The held-out PSNR is **on-trajectory
+INTERPOLATION** (`eval_heldout.py` splits `idx % K` → targets sit between context frames on the same
+arc) and is **decorrelated from / inverts free-orbit realism**. We optimized the wrong number.
+
+**Root cause** (full analysis: `docs/analysis/2026-06-04-postopt-vs-feedforward-rootcause.md`): per-scene
+3DGS is under-constrained MLE that overfits the sparse handheld trajectory; needles/floaters/gaps/speckle
+are null-space artifacts that render the capture path perfectly but break off-axis. Feed-forward is an
+amortized MAP estimate carrying a learned prior → lower on the bogus metric, but generalizes. AnySplat's
+paper only claims post-opt helps where feed-forward is *weak* (16-view); our 48-frame dense scene is
+exactly where it does not.
+
+**Decisions:**
+- **Feed-forward AnySplat is the shipped hero for BOTH phone (`hires`, 1.1M mobile) and desktop
+  (`hires_full`, full ~11.5M).** Post-opt is retired (experiment scenes moved to `scenes/.trash`).
+- **Realism is now judged by the orbit dome (`orbit-shots.mjs`) + `eval_heldout.py --split tail`
+  (extrapolation ePSNR), NEVER by interpolation iPSNR alone.**
+- **Forward path = a better PRIOR, not post-opt.** Next experiment: swap the feed-forward model for
+  **YoNoSplat** (pose-free, std-3DGS, MIT code, ~+3–5 dB indoors vs AnySplat; Pi3-backbone weights are
+  non-commercial → demo-safe, product-flagged), A/B'd against AnySplat on the orbit ruler.
+
+The PSNR table below is retained as a record but its ranking is **misleading for free-orbit** (see above).
+
+---
+
 Metric: held-out-view PSNR/SSIM/LPIPS (every 5th selected frame held out, reconstruct from the
-rest, render the held-out poses with AnySplat's decoder). Harness: `experiments/eval_heldout.py`.
+rest, render the held-out poses with AnySplat's decoder). Harness: `experiments/eval_heldout.py`
+(`--split interleave` = iPSNR interpolation, default; `--split tail` = ePSNR extrapolation).
 Higher PSNR/SSIM = better; **lower LPIPS = better**. See `experiments/baseline/SETTINGS.md` for the
 frozen baseline config and `experiments/research_plan.json` for the ranked plan.
 

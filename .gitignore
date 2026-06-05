@@ -51,3 +51,9 @@ web/playwright-report/
 .idea/
 .vscode/
 *.swp
+
+# free-orbit ruler screenshots (web/tools/orbit-shots.mjs)
+web/orbit/
+
+# packed re10k chunks for YoNoSplat (tools/frames_to_re10k.py output)
+datasets/

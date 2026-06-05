@@ -59,7 +59,7 @@ def _get_preprocessor():
     return pi, "square448"
 
 
-def eval_scene(model, device, frames_dir: Path, holdout: int, preprocess):
+def eval_scene(model, device, frames_dir: Path, holdout: int, preprocess, split: str = "interleave"):
     from src.model.encoder.vggt.utils.pose_enc import pose_encoding_to_extri_intri
     from src.evaluation.metrics import compute_psnr, compute_ssim, compute_lpips
 
@@ -69,8 +69,19 @@ def eval_scene(model, device, frames_dir: Path, holdout: int, preprocess):
         raise SystemExit(f"{frames_dir}: only {n} frames, need >= {holdout + 2}")
     images = [preprocess(p) for p in names]  # each [3,H,W] in [-1,1]
 
-    ctx_idx = [i for i in range(n) if i % holdout != 0]
-    tgt_idx = [i for i in range(n) if i % holdout == 0]
+    # split == "interleave": hold out every Nth frame -> targets sit BETWEEN context frames on the
+    #   same handheld arc => ON-TRAJECTORY INTERPOLATION (iPSNR). Flatters trajectory-overfit splats.
+    # split == "tail": hold out a CONTIGUOUS block at the end of the sweep -> targets lie beyond the
+    #   context cameras => weak EXTRAPOLATION (ePSNR). A better (still imperfect) proxy for free-orbit
+    #   realism than interleave; a true ePSNR needs a SECOND capture pass off the sweep. See the
+    #   root-cause analysis in docs/analysis/2026-06-04-postopt-vs-feedforward-rootcause.md (§2).
+    if split == "tail":
+        m = max(1, n // holdout)
+        tgt_idx = list(range(n - m, n))
+        ctx_idx = list(range(0, n - m))
+    else:
+        ctx_idx = [i for i in range(n) if i % holdout != 0]
+        tgt_idx = [i for i in range(n) if i % holdout == 0]
 
     ctx = (torch.stack([images[i] for i in ctx_idx], 0).unsqueeze(0).to(device) + 1) * 0.5
     tgt = (torch.stack([images[i] for i in tgt_idx], 0).unsqueeze(0).to(device) + 1) * 0.5
@@ -123,6 +134,9 @@ def main():
     ap.add_argument("--scene", action="append", default=[], help="scene id under scenes/")
     ap.add_argument("--frames", action="append", default=[], help="explicit frames dir")
     ap.add_argument("--holdout", type=int, default=5, help="hold out every Nth frame")
+    ap.add_argument("--split", choices=["interleave", "tail"], default="interleave",
+                    help="interleave=on-trajectory iPSNR (flatters overfit); "
+                         "tail=contiguous end block, weak extrapolation ePSNR (closer to free-orbit)")
     ap.add_argument("--tag", default="baseline", help="label for the results log line")
     args = ap.parse_args()
 
@@ -134,13 +148,14 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(device)
     preprocess, prep_tag = _get_preprocessor()
-    print(f"# tag={args.tag} holdout=every-{args.holdout}th preprocess={prep_tag}")
+    metric = "ePSNR(tail-extrap)" if args.split == "tail" else "iPSNR(interp)"
+    print(f"# tag={args.tag} split={args.split} [{metric}] holdout=every-{args.holdout}th preprocess={prep_tag}")
     print(f"{'scene':<12} {'frames':>6} {'ctx':>4} {'tgt':>4} {'PSNR':>7} {'SSIM':>6} {'LPIPS':>6}")
     for name, d in dirs:
         if not d.is_dir():
             print(f"{name:<12} (no frames dir: {d})")
             continue
-        r = eval_scene(model, device, d, args.holdout, preprocess)
+        r = eval_scene(model, device, d, args.holdout, preprocess, split=args.split)
         print(f"{name:<12} {r['frames']:>6} {r['ctx']:>4} {r['tgt']:>4} "
               f"{r['psnr']:>7.2f} {r['ssim']:>6.3f} {r['lpips']:>6.3f}")
 
