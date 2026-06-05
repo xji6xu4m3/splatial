@@ -4,11 +4,15 @@
 web/dist
 scenes
 data
+videos
+datasets
 web/scenes
 web/assets
 web/orbit
 **/__pycache__
 *.pyc
+*.egg-info
+external_AnySplat
 docs
 experiments
 notebooks
