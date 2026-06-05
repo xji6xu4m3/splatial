@@ -1,5 +1,24 @@
 # Reconstruction quality experiments — results log
 
+## ★ YoNoSplat A/B (2026-06-05): tried the prior swap — AnySplat still wins decisively
+
+Ran YoNoSplat (cvg/YoNoSplat, ICLR'26 pose-free feed-forward) on Colab against our `hires` capture and
+A/B'd it on the orbit ruler vs AnySplat (`web/orbit/AB_yono_vs_anysplat.jpg`). **YoNoSplat produced a
+structureless hazy blob** (no walls/floor, `low opacity ratio 0.4497` = ~45% translucent guess-splats);
+**AnySplat renders a coherent room from every orbit angle.** Verdict on the guardrail (*nothing ships
+unless it beats feed-forward in free-orbit*): **YoNoSplat fails badly — parked.**
+
+Why (not a tunable setup bug): (1) only **224²** weights are released — < ¼ of AnySplat's 448 pixel
+budget; (2) **domain mismatch** — the re10k checkpoint trains on *forward-walking* real-estate tours with
+*real* poses; we fed a *360° orbit* with *dummy* poses, so the pose-free path can't recover consistent
+geometry. The mis-oriented up-axis would only rotate the blob, not cause the haze. Negative result is
+clean and valuable: a stronger *pose-free* prior (this one, as released) does **not** help our capture
+style. The real levers stay capture-side quality + a bigger feed-forward view budget on cloud, per the
+root-cause doc — **not** a model swap. Colab integration lives in `notebooks/yonosplat_colab.ipynb` +
+`tools/frames_to_re10k.py` if a higher-res YoNoSplat checkpoint ever ships.
+
+---
+
 ## ★ VERDICT (2026-06-04): feed-forward is the hero; per-scene post-opt is a dead end on dense scenes
 
 After a cloud-A100 campaign (48-view feed-forward → gsplat `default` post-opt → MCMC → MCMC+opacity-reg),
