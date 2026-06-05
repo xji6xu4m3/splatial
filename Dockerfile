@@ -20,7 +20,7 @@ WORKDIR /app
 # AnySplat source: the repo's external_AnySplat/ is gitignored, so clone it at a pinned commit
 # (the model code our server imports as `src.model.*`). Delete the unused CC-BY-NC preprocessor —
 # we use the MIT-clean modules/reconstruct/preprocess.py instead; the model path never imports it.
-RUN git clone https://github.com/InternRobotics/AnySplat.git external_AnySplat \
+RUN git clone --filter=blob:none --no-checkout https://github.com/InternRobotics/AnySplat.git external_AnySplat \
  && git -C external_AnySplat checkout -q 5f5e208a7dd57d52e43ea0d553a95eab526e8775 \
  && rm -f external_AnySplat/src/utils/image.py
 
