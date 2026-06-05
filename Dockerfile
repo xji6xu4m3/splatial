@@ -30,6 +30,10 @@ RUN git clone --filter=blob:none --no-checkout https://github.com/InternRobotics
 RUN sed -i 's/numpy==1.25.0/numpy==1.26.4/' external_AnySplat/requirements.txt \
  && sed -i 's#git+https://github.com/facebookresearch/pytorch3d.git#&@V0.7.8#' external_AnySplat/requirements.txt
 RUN pip install --no-cache-dir -r external_AnySplat/requirements.txt
+# torch_scatter from PyPI compiles CPU-only on the GPU-less build runner (-> runtime
+# "Not compiled with CUDA support" in voxelization). Replace it with the prebuilt CUDA wheel.
+RUN pip install --no-cache-dir --force-reinstall --no-deps \
+      torch_scatter==2.1.2 -f https://data.pyg.org/whl/torch-2.2.0+cu121.html
 RUN pip install --no-cache-dir "flask>=3.0" "qrcode>=7.4"
 
 # App code + the built viewer.
@@ -37,8 +41,11 @@ COPY . .
 COPY --from=viewer /web/dist /app/web/dist
 RUN pip install --no-cache-dir -e .
 
-# Bake the AnySplat weights into the HF cache (build needs network; runtime does not).
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('lhjiang/anysplat')"
+# Bake the model weights into the HF cache (build needs network; runtime is offline).
+# AnySplat loads its VGGT-1B backbone (facebook/VGGT-1B) at inference, so bake BOTH repos —
+# otherwise offline mode fails with LocalEntryNotFoundError on first reconstruction.
+RUN python -c "from huggingface_hub import snapshot_download; \
+    snapshot_download('lhjiang/anysplat'); snapshot_download('facebook/VGGT-1B')"
 ENV HF_HUB_OFFLINE=1
 
 EXPOSE 8080
