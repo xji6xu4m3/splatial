@@ -65,11 +65,9 @@ Glasses have **cameras but no LiDAR** — exactly the constraint Splatial is bui
 
 > Full bug/quality analysis: [`docs/debugging/`](docs/debugging/). Data flow + math: [`docs/DATA_FLOW.md`](docs/DATA_FLOW.md).
 
-## Run on your phone (Docker) — 🚧 in development
+## Run on your phone (Docker)
 
-> 🚧 **In development.** The image isn't published or build-validated yet, so this path doesn't work end-to-end today. For now, use **[Run it](#run-it)** above on a prepared machine. The steps below are the target: a single `docker run` that needs no Python/Node/GPU setup — the goal for running on a *fresh* machine.
-
-Reconstruct and view from a phone with **one command** on any Linux machine with an NVIDIA GPU — capture page, viewer, and reconstruction all served from one container on one port. The phone is just the camera + screen; all the work runs on the GPU host.
+Run on a **fresh** machine with no Python/Node/GPU-library setup — one `docker run` pulls the whole environment, serves the capture page + viewer + reconstruction on one port, and removes cleanly afterward. The phone is just the camera + screen; all the work runs on the GPU host.
 
 ### For the operator — two steps
 
@@ -82,17 +80,22 @@ docker run --gpus all --network host -v "$PWD/scenes:/app/scenes" ghcr.io/xji6xu
 
 **Step 2 — on your phone** (same Wi-Fi): scan the printed QR or open `http://<host-ip>:8080`, record a room with your Camera app, upload it → it reconstructs (~1–2 min) → tap to view in 3D.
 
-That's it. The view cap **auto-scales to the GPU's VRAM** (≤12 GB → 16 views, 16–24 GB → 32, ≥40 GB → 48; override with `-e MAX_VIEWS=24`), and scans persist on the host via the mounted `scenes/` volume. NVIDIA only. To stop: `Ctrl-C`.
+That's it. The view cap **auto-scales to the GPU's VRAM** (≤12 GB → 16 views, 16–24 GB → 32, ≥40 GB → 48; override with `-e MAX_VIEWS=24`), the port auto-falls-back if `:8080` is taken, and scans persist on the host via the mounted `scenes/` volume. NVIDIA only. To stop: `Ctrl-C`.
 
-### Publishing the image (maintainer, one-time)
-
-The `docker run` above works only after the image is published to GHCR. Tag a release to trigger the build, then make the package public so no login is needed:
+**Step 3 (optional) — remove everything**, no trace on the host:
 ```bash
-git tag v0.1.0 && git push origin v0.1.0      # CI builds + pushes ghcr.io/xji6xu4m3/splatial
+docker rmi ghcr.io/xji6xu4m3/splatial:latest && docker system prune -af
 ```
-Then in the GitHub repo → **Packages** → `splatial` → set visibility to **Public** (one time). After that, the two operator steps above just work.
 
-> No local GPU box? Run the same `docker run` on any NVIDIA-GPU machine (e.g. the demo rig) and point the phone at *that* host's `:8080` — same two steps.
+### Publishing the image (maintainer)
+
+The image is published from CI on a version tag and lives at `ghcr.io/xji6xu4m3/splatial` (`:latest` + the tag). To cut a new build:
+```bash
+git tag vX.Y.Z && git push origin vX.Y.Z       # CI builds + pushes the image
+```
+One-time after the first publish: GitHub → **Packages → `splatial` → Package settings → Change visibility → Public**, so operators need no `docker login`.
+
+> No local GPU box? Run the same `docker run` on any NVIDIA-GPU machine (e.g. the demo rig) and point the phone at *that* host's `:8080`.
 
 ## Repository layout
 
