@@ -67,18 +67,30 @@ cd web && npm install && npm run dev                 # dev viewer at http://loca
 
 ## Run on your phone (Docker)
 
-Reconstruct and view from a phone with **one command** on any Linux machine with an NVIDIA GPU — capture page, viewer, and reconstruction all served from one container on one port.
+Reconstruct and view from a phone with **one command** on any Linux machine with an NVIDIA GPU — capture page, viewer, and reconstruction all served from one container on one port. The phone is just the camera + screen; all the work runs on the GPU host.
 
-**One-time host setup:** install [Docker](https://docs.docker.com/engine/install/), the NVIDIA driver, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+### For the operator (HR) — two steps
 
-**Step 1 — start it (prints a URL + QR):**
+**One-time host setup:** install [Docker](https://docs.docker.com/engine/install/), the NVIDIA driver, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). (Needs a Linux box with an NVIDIA GPU, driver ≥ 525.)
+
+**Step 1 — start the server** (pulls the image the first time, then prints a URL + QR):
 ```bash
 docker run --gpus all --network host -v "$PWD/scenes:/app/scenes" ghcr.io/xji6xu4m3/splatial
 ```
 
-**Step 2 — on your phone (same Wi-Fi):** scan the QR or open the printed `http://<host-ip>:8080`, record a room with your Camera app, upload it → it reconstructs (~1–2 min) → tap to view in 3D.
+**Step 2 — on your phone** (same Wi-Fi): scan the printed QR or open `http://<host-ip>:8080`, record a room with your Camera app, upload it → it reconstructs (~1–2 min) → tap to view in 3D.
 
-The view cap **auto-scales to your GPU's VRAM** (≤12 GB → 16 views, 16–24 GB → 32, ≥40 GB → 48); override with `-e MAX_VIEWS=24`. NVIDIA only (driver ≥ 525 for CUDA 12.1); scans persist on the host via the mounted `scenes/` volume.
+That's it. The view cap **auto-scales to the GPU's VRAM** (≤12 GB → 16 views, 16–24 GB → 32, ≥40 GB → 48; override with `-e MAX_VIEWS=24`), and scans persist on the host via the mounted `scenes/` volume. NVIDIA only. To stop: `Ctrl-C`.
+
+### Publishing the image (maintainer, one-time)
+
+HR's `docker run` works only after the image is published to GHCR. Tag a release to trigger the build, then make the package public so no login is needed:
+```bash
+git tag v0.1.0 && git push origin v0.1.0      # CI builds + pushes ghcr.io/xji6xu4m3/splatial
+```
+Then in the GitHub repo → **Packages** → `splatial` → set visibility to **Public** (one time). After that, HR's two steps above just work.
+
+> No GPU box for HR? Run the same `docker run` on any NVIDIA-GPU machine (e.g. the demo rig) and point HR's phone at *that* host's `:8080` — same two steps.
 
 ## Repository layout
 
