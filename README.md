@@ -1,135 +1,104 @@
 # Splatial
 
-**Scan a room with a phone camera, turn it into an editable 3D Gaussian Splatting scene, and drop in furniture — pre-built or spoken into existence ("make me a chair") — that stays anchored as you move.** Camera-only (no LiDAR), built modular, aimed at AR glasses.
+**Scan a small room with a phone camera (no LiDAR), reconstruct it as a 3D Gaussian Splatting scene with AnySplat, and explore it free-viewpoint in a web / Three.js viewer.** Camera-only and built modular — and because the reconstruction core needs only cameras, it ports to AR glasses, which have cameras but no LiDAR.
 
-## System design
+## Results
 
-```mermaid
-flowchart TD
-  phone[Phone RGB video<br/>small room]:::cap --> capture[capture<br/>sample 8-24 frames, resize]:::cap
-  capture --> reconstruct{reconstruct}:::recon
-  reconstruct -->|primary| anysplat[AnySplat<br/>feed-forward 3DGS]:::recon
-  reconstruct -.->|fallback| vggt[VGGT-1B + gsplat]:::recon
-  anysplat --> scene[SplatScene<br/>scene.ply + metadata]:::store
-  vggt --> scene
+The same bedroom capture, reconstructed two ways. **Only the input view count differs** — same AnySplat model, same footage.
 
-  subgraph objects [Objects - one interface, two providers]
-    lib[GLB library<br/>CC0 assets]:::obj
-    voice[Voice to 3D<br/>Web Speech to SDXL-Turbo to TRELLIS to GLB<br/>pre-gen cache + live fallback]:::obj
-  end
+| Best result — 48 views (cloud A100) | Our GPU — 16 views (local RTX 4070 Ti) |
+|---|---|
+| ![48-view reconstruction on A100](docs/img/hires_full.png) | ![16-view reconstruction on RTX 4070 Ti](docs/img/hires_local16.png) |
+| 48 views fit in an 80 GB cloud GPU. Surfaces (bed, walls, floor) are smoother and floaters are minimal — more views constrain the geometry. | Same room and footage at the 12 GB local cap of 16 views. The room still reads clearly, but sparse coverage leaves **black floater-smear** on the ceiling and floor. |
 
-  subgraph editor [Editor - same API, pre-baked for demo]
-    objedit[Object edits<br/>move / rotate / scale / recolor / swap]:::edit
-    sceneedit[Real-scene edits<br/>recolor wall / remove object<br/>Gaussian Grouping + SAM2]:::edit
-  end
+> The cloud GPU's real unlock was **fitting more views in memory**, not more compute. AnySplat is feed-forward — one pass through frozen weights — so a bigger GPU buys view count and capacity, not a better optimum. (Per-scene optimization to "sharpen" further *hurts* free-orbit realism; see [Limitations](#limitations).)
 
-  scene --> viewer[Web / Three.js viewer<br/>free-viewpoint orbit + mic]:::view
-  objects --> viewer
-  scene --> editor
-  objects --> editor
-  editor --> viewer
+## What's built today
 
-  classDef cap fill:#e3f2fd,stroke:#1565c0;
-  classDef recon fill:#ede7f6,stroke:#5e35b1;
-  classDef store fill:#e8f5e9,stroke:#2e7d32;
-  classDef obj fill:#fff3e0,stroke:#ef6c00;
-  classDef edit fill:#fce4ec,stroke:#c2185b;
-  classDef view fill:#e0f7fa,stroke:#00838f;
 ```
+capture ──frames──▶ reconstruct ──SplatScene──▶ scene_store ──▶ viewer
+ (sample,            (AnySplat                   (scene.ply +     (Three.js
+  resize)             feed-forward 3DGS)          scene.json)      free-orbit + walk)
+```
+
+- **capture** — phone video → ordered, de-blurred frames.
+- **reconstruct** — frames → `SplatScene` (`scene.ply` + metadata) via AnySplat (MIT), one `Reconstructor` interface (VGGT+gsplat fallback wired).
+- **scene_store** — persist/load the scene folder (`scene.ply`, `scene.json`).
+- **viewer** — web / Three.js free-viewpoint orbit + first-person walk.
 
 ## Tech & why
 
 | Layer | Choice | Why |
 |---|---|---|
-| Reconstruction | **AnySplat** (MIT) — feed-forward 3DGS | Camera-only, uncalibrated/unposed RGB → splat + poses in one pass; no SLAM, no calibration. |
-| Reconstruction fallback | **VGGT-1B-Commercial → gsplat** (commercial-gated / Apache-2.0) | Commercial-clean backup if AnySplat quality/VRAM disappoints. |
-| Viewer | **Three.js + gsplat renderer** | Fastest, most reliable path for the demo; mature web splat renderers, no native build. |
-| Voice → 3D | **Web Speech → SDXL-Turbo → TRELLIS** (MIT) | Speech needs no GPU; TRELLIS exports GLB directly and fits 12 GB; all commercial-safe. |
-| Real-scene edits | **Gaussian Grouping + SAM 2.1** (Apache-2.0) | Mask-driven select/recolor/remove of Gaussians — edits the real room, not just objects. |
-
-Every "live" moment (generation, real-scene edits) has a **pre-baked artifact** behind a cache, so the demo is deterministic; the genuine pipeline runs behind it.
+| Reconstruction | **AnySplat** (MIT) — feed-forward 3DGS | Camera-only, uncalibrated/unposed RGB → splats + poses in one pass; no SLAM, no calibration. |
+| Reconstruction fallback | **VGGT-1B-Commercial → gsplat** (Apache-2.0) | Commercial-clean backup if AnySplat quality/VRAM disappoints. |
+| Viewer | **Three.js + gsplat renderer** | Mature web splat renderer, no native build — the reliable path for a demo. |
 
 ## Why this is the right bet for AR glasses
 
-Glasses have **cameras but no LiDAR** — exactly the constraint Splatial is built around, so camera-only reconstruction ports directly to the target hardware instead of being thrown away. The reconstruction core is **platform-agnostic Python** that moves to Meta Quest / OpenXR with on-device VIO and offloaded inference, and the **anchoring, object, and editing layers are reused unchanged** — the phone demo is the first rung, not a detour.
+Glasses have **cameras but no LiDAR** — exactly the constraint Splatial is built around, so camera-only reconstruction ports to the target hardware instead of being thrown away. The reconstruction core is **platform-agnostic Python** that moves to Meta Quest / OpenXR with on-device VIO and offloaded inference; the phone + web viewer are the first rung, not a detour.
 
 ## Limitations
 
-- **Feed-forward is the free-orbit quality winner; per-scene gsplat post-opt is a dead end here.** Post-opt (DefaultStrategy *and* MCMC, even at 48 dense views on an A100) raises *on-trajectory* held-out PSNR (22.6→28.5) but a free-orbit screenshot dome (`web/tools/orbit-shots.mjs`) shows it haloed in "needle" + rainbow-speckle artifacts from every orbit angle, while feed-forward stays smooth — the held-out PSNR is on-trajectory *interpolation* and inverts free-orbit realism. Root cause (under-constrained per-scene MLE overfitting the capture path vs feed-forward's learned prior) and the full ranked-solution analysis: [`docs/analysis/2026-06-04-postopt-vs-feedforward-rootcause.md`](docs/analysis/2026-06-04-postopt-vs-feedforward-rootcause.md). The real quality lever is a **stronger feed-forward prior** (e.g. YoNoSplat), not post-opt. Realism is judged by the orbit dome + `eval_heldout.py --split tail` (extrapolation), never by interpolation PSNR.
-- **Object scans carry a low-opacity background haze** — orbiting a subject leaves the background under-observed, so AnySplat fills it with translucent guessed-depth splats. It is *not* removable by post-hoc filtering (entangled with the subject); the fix is capture-side (plain background / tight framing) or input segmentation.
-- **Up-to-scale, not metric** out of the box — metric needs a known reference or ARKit poses via a single Sim(3) alignment.
-- **12 GB VRAM (RTX 4070 Ti)** caps feed-forward at **16 views at the 448×616 tall crop** (20 OOMs at 616; 20 still fits at the old 448² square); denser/sharper needs a cloud GPU. An OOM-recovery ladder degrades gracefully instead of failing.
-- **Live generation latency** (~30–40s) and **static-scene assumption** (minor motion ghosts) — the pre-gen cache hides latency on stage; scenes are assumed mostly static.
+- **View count is the quality lever, and it's VRAM-bound.** 12 GB (RTX 4070 Ti) caps feed-forward at **16 views** at the 448×616 crop; denser/sharper needs a cloud GPU (the A/B above). An OOM-recovery ladder (16→12→10→8) degrades gracefully.
+- **Feed-forward wins free-orbit; per-scene post-opt is a dead end here.** Post-opt raises *on-trajectory* held-out PSNR (22.6→28.5) but adds "needle" + speckle artifacts from every orbit angle — it overfits the capture path. Realism is judged by a free-orbit screenshot dome (`web/tools/orbit-shots.mjs`), never interpolation PSNR. Root cause: [`docs/analysis/2026-06-04-postopt-vs-feedforward-rootcause.md`](docs/analysis/2026-06-04-postopt-vs-feedforward-rootcause.md).
+- **Background haze on object scans** — orbiting a subject under-observes the background, so AnySplat fills it with translucent guessed-depth splats. Fix is capture-side (plain background / tight framing), not post-filtering.
+- **Up-to-scale, not metric** — metric needs a known reference or ARKit poses (one Sim(3) alignment).
 
-> Full verified bug/quality analysis: [`docs/debugging/`](docs/debugging/). Data flow + math: [`docs/DATA_FLOW.md`](docs/DATA_FLOW.md).
+## What could make it better
 
-## Repository layout (planned)
+1. **A bigger GPU** (cloud A10/L40S/A100) — the main unlock: lifts the 16-view cap to 30–200, where surfaces get dense. *More views, not more optimization.*
+2. **Better capture** — matte subject, even light (kill glare), a textured/static background, and a real orbit with parallax. The biggest lever the code can't supply.
+3. **Appearance** — enable SH degree 1–2 for view-dependent shine on a hero scene (currently SH0).
+
+> Full bug/quality analysis: [`docs/debugging/`](docs/debugging/). Data flow + math: [`docs/DATA_FLOW.md`](docs/DATA_FLOW.md).
+
+## How to run
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]" && pytest                    # capture + scene_store + reconstruct smoke
+
+# Reconstruct a room: video → scene folder (AnySplat runs in the `anysplat` conda env)
+python -m modules.reconstruct.cli <video> scenes <id>
+
+cd web && npm install && npm run dev                 # viewer at http://localhost:5173/?scene=<id>
+```
+
+## Repository layout
 
 ```
-docs/            Design spec + per-module API docs
+docs/            Design spec + analysis (img/ holds the result screenshots)
 modules/
-  capture/       Phone video -> frames
-  reconstruct/   Frames -> SplatScene (.ply + metadata)   [AnySplat | VGGT fallback]
-  scene_store/   Persist splats, placed objects, edit ops
-  generate/      Voice/text -> GLB  [Web Speech -> SDXL-Turbo -> TRELLIS] + cache
-  objects/       Acquire (library | generated) + place/transform GLB in splat frame
-  editor/        Edit ops: objects + real-scene splat variants
-  viewer/        Render splat + objects (free-viewpoint, mic button)
-assets/          Pre-built GLB library + pre-generated cache
+  capture/       Phone video -> frames                         [built]
+  reconstruct/   Frames -> SplatScene (.ply + metadata)        [built: AnySplat | VGGT fallback]
+  scene_store/   Persist scene folder + data contracts         [built]
+  viewer/        Render splat (free-orbit + walk)              [built]
+scenes/<id>/     scene.ply + scene.json   (gitignored)
 ```
-
-Full design: [`docs/superpowers/specs/2026-06-01-ar-scan-edit-design.md`](docs/superpowers/specs/2026-06-01-ar-scan-edit-design.md). Foundation plan: [`docs/superpowers/plans/2026-06-01-splatial-foundation.md`](docs/superpowers/plans/2026-06-01-splatial-foundation.md). Setup lives in each module's README.
-
----
-
-## Technical reference (current build)
-
-<details>
-<summary>▶️ <b>Demo video</b> (coming soon — placeholder)</summary>
-
-<!-- Drop the demo clip here, e.g.:
-https://github.com/<user>/<repo>/assets/<id>/demo.mp4
-or an embedded thumbnail linking to the video. -->
-*A short capture → reconstruct → walk-through → edit demo will go here.*
-</details>
 
 ### Hardware & the ceiling it sets
 
 | | |
 |---|---|
 | **Dev GPU** | NVIDIA **RTX 4070 Ti, 12 GB** (the demo machine) |
-| **Feed-forward view cap** | **16 views** at the default 448×616 tall crop (20 OOMs in voxelization); 20 fits only at the old 448² square |
-| **Post-opt view cap** | **17 views** verified to fit (~9.9 GB) — the earlier "~8 views" note was stale |
-| **Model input** | **448 short side, long side kept to 616** (multiple of the ViT patch 14) — recovers portrait FOV the old hard 448² center-crop threw away |
-| **Capture device** | phone (any RGB video); native `/dev/video0` for bench tests |
+| **Feed-forward view cap** | **16 views** at the default 448×616 tall crop (20 OOMs in voxelization) |
+| **Model input** | **448 short side, long side ≤ 616** (multiple of the ViT patch 14) — recovers portrait FOV |
 | **Cloud fallback** | same CLI runs on A10/L4/A100 — the only path to 30–200 views |
 
-### Parameters & why
+### Key parameters
 
-| Parameter | Default | Why this value |
+| Parameter | Default | Why |
 |---|---|---|
-| `MAX_VIEWS` / `MIN_VIEWS` | **16 / 16** | At the default 616 tall crop, 16 is the 12 GB ceiling (20 OOMs in voxelization). An OOM-recovery ladder auto-drops 16→12→10→8 if a scan still won't fit. |
-| `CROP_LONG_CAP` | **616** | Tall portrait crop: keep the 448 short side but crop the long side to 616 (= 14×44) instead of a hard 448² square — recovers ~38 % vertical FOV. Measured: pet1 +0.54 PSNR, room1 +32 % surface density. `448` = old square behaviour. Replaces AnySplat's CC-BY-NC `process_image` with an MIT-clean one. |
-| `SCENE_MODE` | **room** | `object` adds geometric floater cleanup (oversize + statistical-outlier removal, higher opacity floor) for subject-on-background scans. `room` keeps the density-preserving uniform subsample (walls are legitimately low-density). |
-| `CAPTURE_RATE` | **1.5 /s** | Blur-aware **fixed-rate** sampling (AnySplat's demo uses ~1 fps); 1.5 fills toward the cap on a ~15 s clip. Window = `duration/N`, so the interval is dynamic. |
-| `CAPTURE_LONG_SIDE` | **0 (native)** | Feed native frames so the preprocessor *downsamples* sharp pixels instead of upscaling a blurry image (Bug 4). |
-| opacity encoding | **logit on export** | The web viewer applies `sigmoid` on load; AnySplat emits linear `[0,1]`. Storing the logit makes the `.ply` standard-conformant (else everything renders at 50–73 % haze). |
-| `MAX_GAUSSIANS` (mobile) | **1.1 M** (uniform prune) | Phones can't load multi-million-splat PLYs; uniform subsample thins evenly and keeps the background. Desktop can serve the full PLY. |
-| SH degree | **0** (DC only) | Smaller/faster PLYs; a fidelity ceiling, not a geometry limit. Optional deg-1 for view-dependent shine later. |
-| scene `up` | **from camera poses** | `up = −mean(predicted camera Y axes)` (Nerfstudio method) → floor renders level; RANSAC floor-plane fallback; hand-tunable in `scene.json`. |
-| viewer pixel ratio | **≤1.25** | Phones render at 2–3×; capping cuts GPU heat ~4–6× with little visible loss. |
+| `MAX_VIEWS` / `MIN_VIEWS` | **16 / 16** | The 12 GB ceiling at the 616 crop; OOM ladder auto-drops 16→12→10→8. |
+| `CROP_LONG_CAP` | **616** | Tall portrait crop (keep 448 short side, crop long side to 616) recovers ~38% vertical FOV vs a hard 448² square. MIT-clean replacement for AnySplat's CC-BY-NC `process_image`. |
+| `SCENE_MODE` | **room** | `object` adds floater cleanup (outlier removal, higher opacity floor) for subject-on-background scans; `room` preserves low-density walls. |
+| `CAPTURE_RATE` | **1.5 /s** | Blur-aware fixed-rate sampling, clamped to the view cap. |
+| opacity encoding | **logit on export** | Viewer applies `sigmoid` on load; storing the logit keeps the `.ply` standard-conformant (else everything renders hazy). |
+| SH degree | **0** (DC only) | Smaller/faster PLYs; a fidelity ceiling, not a geometry limit. |
 
-Tune any of these via env, e.g. `SCENE_MODE=object CROP_LONG_CAP=616 python -m modules.reconstruct.cli <video> scenes <id>`.
+Tune via env, e.g. `SCENE_MODE=object CROP_LONG_CAP=616 python -m modules.reconstruct.cli <video> scenes <id>`. Quality is tracked with a held-out-view PSNR/SSIM/LPIPS harness (`experiments/eval_heldout.py`) plus the free-orbit dome.
 
-Reconstruction quality is tracked with a **held-out-view PSNR/SSIM/LPIPS** harness
-(`experiments/eval_heldout.py`) against a frozen baseline; settings, results, and the research-driven
-experiment plan live in [`experiments/`](experiments/).
+---
 
-### How we'd optimize next
-
-1. **Bigger GPU (the main unlock).** A cloud A100/L40S (40–80 GB) lifts the 16-view cap to 30–200, which is where surfaces get dense *and* where post-optimization starts to **help** instead of overfitting to "needle" artifacts. On 12 GB / sparse handheld views, post-opt improves held-out PSNR (+1.8 dB) but looks worse in free-orbit — so it's disabled by default (`tools/postopt.sh`, kept for dense captures).
-2. **Capture quality.** Matte subject, even light (kill RGB/monitor glare), a static **textured** (or masked) background, and a real orbit with parallax — the biggest lever the code can't supply. (Object scans especially: a plain background avoids the low-opacity haze.)
-3. **Sampler v2.** Optical-flow **motion-aware** keyframing (constant parallax) on top of today's blur-aware fixed-rate.
-4. **Appearance.** Enable SH degree 1–2 for view-dependent shading on the hero scene.
-5. **Metric scale & robust up.** A one-shot Sim(3) to ARKit/known-reference for metric units; up-recovery is strongest on room pans (tight object orbits pitch the phone — fall back to the manual `up`).
-6. **Editing phases (next).** Object edit ops → voice→3D (TRELLIS) → real-scene edits (Gaussian Grouping + SAM 2) — all behind the same data contracts.
+Full design: [`docs/superpowers/specs/2026-06-01-ar-scan-edit-design.md`](docs/superpowers/specs/2026-06-01-ar-scan-edit-design.md) · Foundation plan: [`docs/superpowers/plans/2026-06-01-splatial-foundation.md`](docs/superpowers/plans/2026-06-01-splatial-foundation.md).
