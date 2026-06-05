@@ -6,7 +6,6 @@ is no conda shell-out. COOP/COEP are set so the viewer's gpu-accelerated splat s
 SharedArrayBuffer.
 """
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -76,11 +75,10 @@ def subprocess_recon_launcher(video: str, scene: str, scenes_root: Path, status:
     from the parent env (set by __main__ from the detected GPU)."""
     def run():
         try:
-            proc = subprocess.run(
+            subprocess.run(
                 [sys.executable, "-m", "modules.reconstruct.cli", video, "scenes", scene],
                 cwd=str(ROOT), check=True, capture_output=True, text=True, timeout=1200,
             )
-            _ = proc
             status[scene] = "done"
         except subprocess.CalledProcessError as e:
             log = scenes_root / scene
