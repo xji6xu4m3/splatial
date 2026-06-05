@@ -2,6 +2,7 @@
 phone URL + QR, then serve. Run with --network host so the LAN IP is reachable from a phone.
 """
 import os
+from pathlib import Path
 
 from modules.serve.app import create_app
 from modules.serve.gpu import default_max_views
@@ -42,6 +43,12 @@ def main() -> None:
     if port != requested:
         print(f"Port {requested} is in use — serving on {port} instead "
               f"(the URL/QR below already reflect it).")
+    # Record the actual bound port so the container HEALTHCHECK follows a fallback
+    # (under --network host, PORT may be taken and we land on the next free port).
+    try:
+        Path("/tmp/splatial.port").write_text(str(port))
+    except OSError:
+        pass
 
     print(startup_banner(port))
     app = create_app()

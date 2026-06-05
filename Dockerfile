@@ -50,5 +50,5 @@ ENV HF_HUB_OFFLINE=1
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s \
-  CMD python -c "import urllib.request,os,sys; p=os.environ.get('PORT','8080'); sys.exit(0 if urllib.request.urlopen('http://localhost:'+p+'/healthz').status==200 else 1)"
+  CMD python -c "import urllib.request,os,sys; p=(open('/tmp/splatial.port').read().strip() if os.path.exists('/tmp/splatial.port') else os.environ.get('PORT','8080')); sys.exit(0 if urllib.request.urlopen('http://localhost:'+p+'/healthz').status==200 else 1)"
 CMD ["python", "-m", "modules.serve"]
