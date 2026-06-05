@@ -62,8 +62,23 @@ pip install -e ".[dev]" && pytest                    # capture + scene_store + r
 # Reconstruct a room: video → scene folder (AnySplat runs in the `anysplat` conda env)
 python -m modules.reconstruct.cli <video> scenes <id>
 
-cd web && npm install && npm run dev                 # viewer at http://localhost:5173/?scene=<id>
+cd web && npm install && npm run dev                 # dev viewer at http://localhost:5173/view/?scene=<id>
 ```
+
+## Run on your phone (Docker)
+
+Reconstruct and view from a phone with **one command** on any Linux machine with an NVIDIA GPU — capture page, viewer, and reconstruction all served from one container on one port.
+
+**One-time host setup:** install [Docker](https://docs.docker.com/engine/install/), the NVIDIA driver, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
+**Step 1 — start it (prints a URL + QR):**
+```bash
+docker run --gpus all --network host -v "$PWD/scenes:/app/scenes" ghcr.io/xji6xu4m3/splatial
+```
+
+**Step 2 — on your phone (same Wi-Fi):** scan the QR or open the printed `http://<host-ip>:8080`, record a room with your Camera app, upload it → it reconstructs (~1–2 min) → tap to view in 3D.
+
+The view cap **auto-scales to your GPU's VRAM** (≤12 GB → 16 views, 16–24 GB → 32, ≥40 GB → 48); override with `-e MAX_VIEWS=24`. NVIDIA only (driver ≥ 525 for CUDA 12.1); scans persist on the host via the mounted `scenes/` volume.
 
 ## Repository layout
 
