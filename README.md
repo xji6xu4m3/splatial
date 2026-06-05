@@ -23,7 +23,7 @@ On a machine that's already set up (the dev box / demo rig — CUDA GPU with tor
 
 Then on your phone (same Wi-Fi): **scan the QR** (or open the printed `http://<host-ip>:8080`) → record a room with your Camera app → upload → it reconstructs (~1–2 min) → tap to view in 3D. Stop with `Ctrl-C`. If `:8080` is busy it auto-picks the next free port (shown in the banner).
 
-> The phone is just the camera + screen — the GPU work runs on whatever machine ran `./run.sh`. This is the easy path: run it once on the prepared rig and point any phone at it. Setting up a **fresh** machine from scratch is the Docker path (below, in development) or the dev setup at the bottom.
+> The phone is just the camera + screen — the GPU work runs on whatever machine ran `./run.sh`. This is the easy path when a machine is already set up. For a **fresh** machine with no setup, use the [Docker](#run-on-your-phone-docker) path instead.
 
 ## What's built today
 
