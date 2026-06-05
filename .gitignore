@@ -57,3 +57,4 @@ web/orbit/
 
 # packed re10k chunks for YoNoSplat (tools/frames_to_re10k.py output)
 datasets/
+docs/media/    # local-only experiment screenshots (not uploaded)
