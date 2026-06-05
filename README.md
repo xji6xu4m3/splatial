@@ -13,6 +13,18 @@ The same bedroom capture, reconstructed two ways. **Only the input view count di
 
 > The cloud GPU's real unlock was **fitting more views in memory**, not more compute. AnySplat is feed-forward — one pass through frozen weights — so a bigger GPU buys view count and capacity, not a better optimum. (Per-scene optimization to "sharpen" further *hurts* free-orbit realism; see [Limitations](#limitations).)
 
+## Run it
+
+On a machine that's already set up (the dev box / demo rig — CUDA GPU with torch + AnySplat + weights), it's **one command**:
+
+```bash
+./run.sh         # starts the server and prints a phone URL + QR
+```
+
+Then on your phone (same Wi-Fi): **scan the QR** (or open the printed `http://<host-ip>:8080`) → record a room with your Camera app → upload → it reconstructs (~1–2 min) → tap to view in 3D. Stop with `Ctrl-C`. If `:8080` is busy it auto-picks the next free port (shown in the banner).
+
+> The phone is just the camera + screen — the GPU work runs on whatever machine ran `./run.sh`. This is the easy path: run it once on the prepared rig and point any phone at it. Setting up a **fresh** machine from scratch is the Docker path (below, in development) or the dev setup at the bottom.
+
 ## What's built today
 
 ```
@@ -53,19 +65,9 @@ Glasses have **cameras but no LiDAR** — exactly the constraint Splatial is bui
 
 > Full bug/quality analysis: [`docs/debugging/`](docs/debugging/). Data flow + math: [`docs/DATA_FLOW.md`](docs/DATA_FLOW.md).
 
-## How to run
+## Run on your phone (Docker) — 🚧 in development
 
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]" && pytest                    # capture + scene_store + reconstruct smoke
-
-# Reconstruct a room: video → scene folder (AnySplat runs in the `anysplat` conda env)
-python -m modules.reconstruct.cli <video> scenes <id>
-
-cd web && npm install && npm run dev                 # dev viewer at http://localhost:5173/view/?scene=<id>
-```
-
-## Run on your phone (Docker)
+> 🚧 **In development.** The image isn't published or build-validated yet, so this path doesn't work end-to-end today. For now, use **[Run it](#run-it)** above on a prepared machine. The steps below are the target: a single `docker run` that needs no Python/Node/GPU setup — the goal for running on a *fresh* machine.
 
 Reconstruct and view from a phone with **one command** on any Linux machine with an NVIDIA GPU — capture page, viewer, and reconstruction all served from one container on one port. The phone is just the camera + screen; all the work runs on the GPU host.
 
@@ -125,6 +127,22 @@ scenes/<id>/     scene.ply + scene.json   (gitignored)
 | SH degree | **0** (DC only) | Smaller/faster PLYs; a fidelity ceiling, not a geometry limit. |
 
 Tune via env, e.g. `SCENE_MODE=object CROP_LONG_CAP=616 python -m modules.reconstruct.cli <video> scenes <id>`. Quality is tracked with a held-out-view PSNR/SSIM/LPIPS harness (`experiments/eval_heldout.py`) plus the free-orbit dome.
+
+## Develop & test
+
+For working on the code and running the test suite (this is **not** the run path — see [Run it](#run-it) for that). Note the **two environments**: a light `.venv` for the pure-logic modules + tests (no torch), and a separate `anysplat` conda env with CUDA torch for reconstruction.
+
+```bash
+# 1. dev tools + unit tests (capture, scene_store, server — no GPU needed)
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev,serve]" && pytest
+
+# 2. reconstruct one room from the CLI (runs in the `anysplat` conda env, which has torch)
+python -m modules.reconstruct.cli <video> scenes <id>
+
+# 3. viewer in dev mode (hot-reload)
+cd web && npm install && npm run dev      # http://localhost:5173/view/?scene=<id>
+```
 
 ---
 
